@@ -4,11 +4,7 @@
 \title{
   Create a connection to a database
 }
-\description{
-  Create a connection to a PostgreSQL or Greenplum (Pivotal) database. One can create multiple connections
-  to multiple databases. The connections are indexed by an integer
-  starting from 1.
-}
+
 \usage{
 db.connect(host = "localhost", user = Sys.getenv("USER"), dbname = user,
 password = "", port = 5432, madlib = "madlib", conn.pkg = "RPostgreSQL")
@@ -54,7 +50,11 @@ password = "", port = 5432, madlib = "madlib", conn.pkg = "RPostgreSQL")
   Maintainer: Hai Qian \email{hqian@gopivotal.com}, Predictive Analytics Team at Pivotal
   Inc. \email{user@madlib.net}
 }
-
+\description{
+  Create a connection to a PostgreSQL or Greenplum (Pivotal) database. One can create multiple connections
+  to multiple databases. The connections are indexed by an integer
+  starting from 1.
+}
 \note{
   Right only MADlib 0.6 or later is supported. If you have an older
   version of MADlib, you will not be able to use all the functions whose
@@ -62,6 +62,15 @@ password = "", port = 5432, madlib = "madlib", conn.pkg = "RPostgreSQL")
   functions.
 
   Also, right now only PostgreSQL and Greenplum databases are supported.
+}
+
+
+\examples{
+\dontrun{
+## connect to a database
+db.connect(host = "localhost", user = "me", dbname = "me", password =
+"", port = 5432, madlib = "madlib")
+}
 }
 
 \seealso{
@@ -73,13 +82,6 @@ password = "", port = 5432, madlib = "madlib", conn.pkg = "RPostgreSQL")
   about the connection.
   
   \code{\link{conn.eql}} tests whether two connections are the same.
-}
-\examples{
-\dontrun{
-## connect to a database
-db.connect(host = "localhost", user = "me", dbname = "me", password =
-"", port = 5432, madlib = "madlib")
-}
 }
 
 \keyword{utilities}
