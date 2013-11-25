@@ -23,18 +23,18 @@ To install PivotalR:
     devtools::install_github("PivotalR", "madlib-internal")
     ```
     
-* Or download the source tarball directly from [**here**](https://github.com/madlib-internal/PivotalR/tarball/master), and 
+* Or download the source tarball directly from [**here**](https://github.com/gopivotal/PivotalR/tarball/master), and 
   then install the tarball
 
   ```r
-  install.packages("madlib-internal-PivotalR-xxxx.tar.gz", repos = NULL, type = "source")
+  install.packages("gopivotal-PivotalR-xxxx.tar.gz", repos = NULL, type = "source")
   ```
 
 To get started:
 
-* [Read the wiki](https://github.com/madlib-internal/PivotalR/wiki)
+* [Read the wiki](https://github.com/gopivotal/PivotalR/wiki)
 
-* [Look at some demo code](https://github.com/madlib-internal/PivotalR/wiki/Example)
+* [Look at some demo code](https://github.com/gopivotal/PivotalR/wiki/Example)
 
 * [Watch a training video](https://docs.google.com/file/d/0B9bfZ-YiuzxQc1RWTEJJZ2V1TWc/edit?usp=sharing)
 
@@ -42,4 +42,4 @@ To get started:
 
 * [View the pivotal demo slides](https://docs.google.com/presentation/d/103dv1h4VBCBAixqpezJzWmffyrcRR2h9MCJBTfMOBIM/edit?usp=sharing)
 
-* [Check out the PivotalR webpage](http://madlib-internal.github.io/PivotalR)
+* [Check out the PivotalR webpage](http://gopivotal.github.io/PivotalR)
