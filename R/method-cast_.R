@@ -1,10 +1,10 @@
-
 .attach.cast <- function(x, cast, udt, array = TRUE)
 {
-    x <- x[,]
+    x <- .db.data.frame2db.Rquery(x)
+
     for (i in seq_len(length(names(x)))) {
         if (array && x@.col.data_type[i] == "array") {
-            z <- .expand.array(x[,i])
+            z <- x[names(x)[i]][,]
             x@.expr[i] <- paste("array[", paste("(", z@.expr, ")::",
                                                 cast, collapse = ", ",
                                                 sep = ""),
@@ -98,7 +98,7 @@ setMethod(
 
 as.time <- function(x, ...)
 {
-    if (!is(x, "ob.obj"))
+    if (!is(x, "db.obj"))
         stop("This function only applies to db.obj objects!")
     .attach.cast(x, "time", "time")
 }
@@ -107,7 +107,7 @@ as.time <- function(x, ...)
 
 as.timestamp <- function(x, ...)
 {
-    if (!is(x, "ob.obj"))
+    if (!is(x, "db.obj"))
         stop("This function only applies to db.obj objects!")
     .attach.cast(x, "timestamp", "timestamp")
 }
@@ -116,7 +116,7 @@ as.timestamp <- function(x, ...)
 
 as.interval <- function(x, ...)
 {
-    if (!is(x, "ob.obj"))
+    if (!is(x, "db.obj"))
         stop("This function only applies to db.obj objects!")
     .attach.cast(x, "interval", "interval")
 }
@@ -126,7 +126,7 @@ as.interval <- function(x, ...)
 db.date.style <- function (conn.id = 1, set = NULL)
 {
     if (is.null(set)) {
-        res <- .get.res(sql = "show datestyle", conn.id = conn.id)
+        res <- db.q("show datestyle", conn.id = conn.id, verbose = FALSE)
         return (res)
     } else {
         res <- try(.db.getQuery(paste("set datestyle to", set),

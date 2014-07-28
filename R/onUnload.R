@@ -5,8 +5,8 @@
 .onUnload <- function(libpath)
 {
     ## close all unclosed database connections
-    for (i in seq(along=.localVars$db))
-        db.disconnect(conn.id = i, verbose = FALSE)
+    for (i in .localVars$conn.id[,1])
+        db.disconnect(conn.id = i, verbose = FALSE, force = TRUE)
 
     ## also unload all db connection drivers
     pkg.names <- names(.localVars$drv)
@@ -15,5 +15,5 @@
 
     ## turn off the `special cbind()' :
     ## source(paste(.localVars$pkg.path, "/auto/disable.cbind2.R", sep = ""))
-    eval(parse(text = "methods:::bind_activation(on = FALSE)"))
+    ## eval(parse(text = "methods:::bind_activation(on = FALSE)"))
 }

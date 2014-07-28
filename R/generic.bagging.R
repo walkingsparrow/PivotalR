@@ -1,4 +1,3 @@
-
 ## -----------------------------------------------------------------------
 ## Bagging method, not a wrapper of MADlib function
 ## -----------------------------------------------------------------------
@@ -21,7 +20,7 @@ generic.bagging <- function (train, data, nbags = 10, fraction = 1)
     ## idat <- .create.indexed.temp.table(data)
     for (i in 1:nbags) {
         data.use <- sample(data, size, replace = TRUE)
-        res[[i]] <- train(data = data.use)
+        res[[i]] <- train(data.use)
         delete(data.use)
     }
     ## delete(idat)
@@ -42,14 +41,27 @@ predict.bagging.model <- function (object, newdata, combine = "mean",
     for (i in seq_len(l))
         pred[[i]] <- predict(object[[i]], newdata)
 
+    if (typeof(pred[[1]]) == 'logical' || pred[[1]]@.col.data_type == "boolean")
+        is.bool <- TRUE
+    else
+        is.bool <- FALSE
+
     if (combine == "mean") {
         for (i in seq_len(l)) {
-            if (i == 1)
+            if (i == 1) {
                 res <- pred[[i]]
-            else
-                res <- res + pred[[i]]
+                if (is.bool) res <- as.integer(res)
+            } else {
+                if (is.bool)
+                    res <- res + as.integer(pred[[i]])
+                else
+                    res <- res + pred[[i]]
+            }
         }
-        res / l
+        if (is.bool)
+            res / l > 0.5
+        else
+            res / l
     } else if (combine == "vote") {
         res.type <- pred[[1]]@.col.data_type
         res.udt.name <- pred[[1]]@.col.udt_name
@@ -114,6 +126,7 @@ predict.bagging.model <- function (object, newdata, combine = "mean",
             .col.udt_name = res.udt.name,
             .where = where,
             .is.factor = FALSE,
+            .factor.ref = as.character(NA),
             .factor.suffix = "",
             .sort = sort,
             .dist.by = newdata@.dist.by)
@@ -126,10 +139,10 @@ predict.bagging.model <- function (object, newdata, combine = "mean",
 ## load a SQL function from inst/sql/
 .load.func <- function (funcname, conn.id)
 {
-    db.str <- (.get.dbms.str(conn.id))$db.str
-    if (db.str == "HAWQ")
-        stop("HAWQ does not support creating function yet!")
-    
+    db <- .get.dbms.str(conn.id)
+    if (db$db.str == "HAWQ" && grepl("^1\\.1", db$version.str))
+        stop("HAWQ 1.1 does not support creating function yet!")
+
     id <- .localVars$conn.id[.localVars$conn.id[,1] == conn.id, 2]
     if (!is.null(.localVars$db[[id]]$func)) {
         k <- which(.localVars$db[[id]]$func[,1] == funcname)
@@ -141,14 +154,16 @@ predict.bagging.model <- function (object, newdata, combine = "mean",
     sql.file <- paste(.localVars$pkg.path, "/sql/", funcname,
                       ".sql_in", sep = "")
     use.name <- .unique.string()
-    tmp.file <- paste("/tmp/", use.name, ".sql_in", sep = "")
+    ## tmp.file <- paste("/home/gpadmin/Downloads/tests/", use.name, ".sql_in", sep = "")
     old.name <- paste("pg_temp.", funcname, sep = "")
     new.name <- paste("pg_temp.", use.name, sep = "")
-    system(paste("sed -e \"s/", old.name, "/", new.name, "/g\" ", sql.file,
-                 " > ", tmp.file, sep = ""))
-    cmd <- paste(scan(tmp.file, what = 'a', sep = "\n", quiet = TRUE), collapse = "\n")
+    ## system(paste("sed -e \"s/", old.name, "/", new.name, "/g\" ", sql.file,
+    ##              " > ", tmp.file, sep = ""))
+    ## cmd <- paste(scan(tmp.file, what = 'a', sep = "\n", quiet = TRUE), collapse = "\n")
+    cmd <- paste(scan(sql.file, what = 'a', sep = "\n", quiet = TRUE), collapse = "\n")
+    cmd <- gsub(old.name, new.name, cmd)
     res <- .db.getQuery(cmd, conn.id)
-    system(paste("rm -f ", tmp.file, sep = ""))
+    ## system(paste("rm -f ", tmp.file, sep = ""))
 
     fn.schema <- .db.getQuery(paste("SELECT specific_schema from information_schema.routines where routine_name = '",
                                     use.name, "'", sep = ""), conn.id)

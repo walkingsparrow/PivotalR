@@ -22,8 +22,8 @@ available at \url{http://zimmeee.github.io/gp-r/#pivotalr}.
 \tabular{ll}{
 Package: \tab PivotalR\cr
 Type: \tab Package\cr
-Version: \tab 0.1.7\cr
-Date: \tab 2013-09-09\cr
+Version: \tab 0.1.16\cr
+Date: \tab 2014-04-29\cr
 License: \tab GPL (>= 2)\cr
 Depends: \tab methods, DBI, RPostgreSQL\cr
 }
@@ -122,9 +122,6 @@ include
 ## get the help for the package
 help("PivotalR-package")
 
-## get the help for one method
-help("preview,db.Rquery-method")
-
 ## get help for a function
 help(madlib.lm)
 
@@ -143,7 +140,7 @@ db.objects(conn.id = 1)
 
 ## create a table and the R object pointing to the table
 ## using the example data that comes with this package
-delete("abalone")
+delete("abalone", conn.id = cid)
 x <- as.db.data.frame(abalone, "abalone")
 
 ## OR if the table already exists, you can create the wrapper directly
@@ -155,7 +152,7 @@ names(x) # column names of the data table
 
 madlib.summary(x) # look at a summary for each column
 
-preview(x, 20) # look at a sample of the data
+lk(x, 20) # look at a sample of the data
 
 ## look at a sample sorted by id column
 lookat(sort(x, decreasing = FALSE, x$id), 20)
@@ -177,11 +174,11 @@ ap$pred <- predict(fit1, x) # add a column which is the predicted values
 
 ## If the data set is very big, you do not want to load all the
 ## data points into R and plot. We can just plot a random sample.
-random.sample <- preview(sort(ap, FALSE, "random"), 1000) # sort randomly
+random.sample <- lk(sort(ap, FALSE, "random"), 1000) # sort randomly
 
 plot(random.sample) # plot a random sample
 
-## fit a single model to all data treating sex as a categorial variable ---------
+## fit a single model to all data treating sex as a categorical variable ---------
 y <- x # make a copy, y is now a db.data.frame object
 y$sex <- as.factor(y$sex) # y becomes a db.Rquery object now
 fit2 <- madlib.lm(rings ~ . - id, data = y)
@@ -200,7 +197,7 @@ fit3 # view the result
 ## the percentage of correct prediction
 lookat(mean((x$rings < 10) == predict(fit3, x)))
 
-## fit a single model to all data treating sex as a categorial variable ----------
+## fit a single model to all data treating sex as a categorical variable ----------
 y <- x # make a copy, y is now a db.data.frame object
 y$sex <- as.factor(y$sex) # y becomes a db.Rquery object now
 fit4 <- madlib.glm(rings < 10 ~ . - id, data = y, family = "binomial")
@@ -213,7 +210,7 @@ lookat(mean((y$rings < 10) == predict(fit4, y)))
 ## Group by Examples --------
 
 ## mean value of each column except the "id" column
-preview(by(x[,-1], x$sex, mean))
+lk(by(x[,-1], x$sex, mean))
 
 ## standard deviation of each column except the "id" column
 lookat(by(x[,-1], x$sex, sd))
@@ -235,7 +232,7 @@ lookat(m, 20)
 y <- x$length + x$height + 2.3
 z <- x$length * x$height / 3
 
-preview(y < z, 20)
+lk(y < z, 20)
 
 ## ------------------------------------------------------------------------
 ## Deal with NULL values

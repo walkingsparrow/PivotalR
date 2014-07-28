@@ -1,4 +1,3 @@
-
 ## -----------------------------------------------------------------------
 ## Utility functions used by madlib
 ## -----------------------------------------------------------------------
@@ -9,8 +8,8 @@
     ## Only newer versions of MADlib are supported
     conn.id <- conn.id(data)
     idx <- .localVars$conn.id[.localVars$conn.id[,1] == conn.id, 2]
-    db.info <- .get.dbms.str(conn.id)
-    if (db.info$db.str != "HAWQ") {
+    db <- .get.dbms.str(conn.id)
+    if (db$db.str != "HAWQ" || !grepl("^1\\.1", db$version.str)) {
         if (identical(.localVars$db[[idx]]$madlib.v, numeric(0)) ||
             .madlib.version.number(conn.id) < allowed.version)
             stop("MADlib error: Please use Madlib version v",
@@ -21,7 +20,7 @@
 ## -----------------------------------------------------------------------
 
 ## Analyze the formula and get each terms
-.get.params <- function (formula, data, na.action = NULL)
+.get.params <- function (formula, data, na.action = NULL, na.as.level = FALSE)
 {
     n <- ncol(data)
     params <- .analyze.formula(formula, data)
@@ -36,25 +35,36 @@
     ## create temp table for db.Rquery objects
     is.tbl.source.temp <- FALSE
     tbl.source <- character(0)
-    if (is(params$data, "db.Rquery") || is(params$data, "db.view")) {
+    if (is(params$data, "db.Rquery")) {
         tbl.source <- .unique.string()
         is.tbl.source.temp <- TRUE
         data <- as.db.data.frame(x = params$data,
                                  table.name = tbl.source,
                                  is.temp = FALSE, verbose = FALSE,
-                                 distributed.by = params$data@.dist.by)
+                                 distributed.by = params$data@.dist.by,
+                                 factor.full = params$factor.full,
+                                 na.as.level = na.as.level)
+    } else if (is(params$data, "db.view")) {
+        tbl.source <- .unique.string()
+        is.tbl.source.temp <- TRUE
+        data <- as.db.data.frame(x = params$data,
+                                 table.name = tbl.source,
+                                 is.temp = FALSE, verbose = FALSE)
     }
 
     is.factor <- data@.is.factor
     cols <- names(data)
-    
+
     params <- .analyze.formula(formula, data, params$data, refresh = TRUE,
                                is.factor = is.factor, cols = cols,
-                               suffix = data@.factor.suffix)
+                               suffix = data@.factor.suffix,
+                               grp.vars = params$grp.vars,
+                               grp.expr = params$grp.expr)
 
     list(data = data, params = params,
          is.tbl.source.temp = is.tbl.source.temp,
-         tbl.source = tbl.source, is.factor = is.factor[seq(n)])
+         tbl.source = tbl.source, is.factor = is.factor[seq(n)],
+         factor.ref = data@.factor.ref)
 }
 
 ## -----------------------------------------------------------------------
@@ -151,9 +161,10 @@ groups.logregr.madlib.grps <- function (x)
 ## delete all __madlib_temp_* tables from a database
 clean.madlib.temp <- function(conn.id = 1)
 {
-    for (tbl in db.objects("__madlib_temp_\\d+_\\d+_\\d+__",
-                           conn.id=conn.id))
-        delete(tbl, conn.id=conn.id)
+    for (tbl in db.objects(
+        .unique.pattern(),
+        conn.id=conn.id))
+        delete(tbl, conn.id=conn.id, cascade = TRUE)
 }
 
 ## ----------------------------------------------------------------------
@@ -168,10 +179,20 @@ clean.madlib.temp <- function(conn.id = 1)
     lst0 <- deparse(x)
     lst0 <- lst0[2:(length(lst0)-1)]
     lst <- character(0)
+    ignore <- FALSE
     for (i in 1:length(lst0)) {
-        if (grepl("value", lst0[i]) ||
-            grepl("array", lst0[i]) ||
-            grepl("attr", lst0[i])) next
+        if (grepl("\\.value <- ", lst0[i]) ||
+            grepl("\\.grad <- ", lst0[i]) ||
+            grepl("attr\\(\\.value,", lst0[i])) {
+            ignore <- TRUE
+            next
+        }
+        if (ignore) {
+            if (!grepl("<-", lst0[i]))
+                next
+            else
+                ignore <- FALSE
+        }
         if (grepl("<-", lst0[i])) {
             lst <- c(lst, lst0[i])
         } else {
@@ -183,20 +204,23 @@ clean.madlib.temp <- function(conn.id = 1)
     env <- lapply(lst, function(x) eval(parse(
         text = paste("quote(", strsplit(x, "\\s*<-\\s*")[[1]][2],
         ")", sep = ""))))
+
     names(env) <- sapply(lst, function(x)
                          gsub("^\\s*", "",
                               strsplit(x, "\\s*<-\\s*")[[1]][1]))
-    res <- ""
-    k <- which(names(env) == paste(".grad[, \"", var, "\"]",
-                    sep = ""))
-    
-    while (env[[k]] != res) {
-        res <- env[[k]]
+
+    k <- which(names(env) == paste(".grad[, \"", gsub("\"", "\\\\\\\"", var),
+                    "\"]", sep = ""))
+    pre.res <- ""
+    res <- env[[k]]
+    while (!identical(pre.res, res)) {
         for (i in 1:length(env))
             env[[i]] <- eval(parse(text = paste("substitute(",
                                    paste(deparse(env[[i]]),
                                          collapse = " "),
                                    ", env)", sep = "")))
+        pre.res <- res
+        res <- env[[k]]
     }
     gsub("\\s+", " ", paste(deparse(res), collapse = " "))
 }

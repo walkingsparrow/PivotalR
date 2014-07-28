@@ -1,4 +1,6 @@
 # exportPattern("^[^\\.]")
+useDynLib(PivotalR)
+import(methods, Matrix)
 
 export("db.connect", "db.disconnect", "db.list")
 
@@ -8,7 +10,10 @@ export ("conn.pkg", "host", "dbname", "user", "dbms",
 export ("db.data.frame", "as.db.data.frame")
 
 exportClasses ("db.obj", "db.Rquery", "db.data.frame",
-               "db.table", "db.view", "db.Rcrossprod")
+               "db.table", "db.view", "db.Rcrossprod",
+               "db.Rview")
+
+export("as.db.Rview")
 
 exportMethods ("dim", "names", "names<-")
 
@@ -35,11 +40,12 @@ export("predict.lm.madlib", "predict.logregr.madlib",
 
 exportMethods("$", "[[", "[", "subset")
 
-exportMethods("$<-", "[[<-", "[<-")
+exportMethods("$<-", "[[<-")
+export("[<-.db.obj")
 
 exportMethods("as.factor")
 
-export("preview", "delete", "key", "key<-")
+export("delete", "key", "key<-")
 
 exportMethods("is.factor")
 
@@ -74,6 +80,8 @@ export("groups", "groups.lm.madlib", "groups.logregr.madlib",
       "groups.lm.madlib.grps", "groups.logregr.madlib.grps")
 
 exportMethods("cbind2")
+
+export("cbind")
 
 export("madlib.arima")
 
@@ -132,3 +140,17 @@ exportMethods("as.list")
 export("array.len")
 
 exportMethods("na.omit")
+
+export("db.q", "db", ".db")
+
+export("vcov.lm.madlib", "vcov.lm.madlib.grps",
+       "vcov.logregr.madlib.grps", "vcov.logregr.madlib")
+
+exportMethods("ifelse", "rowSums", "rowMeans")
+
+exportMethods("relevel")
+export("margins", "margins.lm.madlib", "margins.lm.madlib.grps",
+       "margins.logregr.madlib", "margins.logregr.madlib.grps",
+       "print.margins")
+
+export("Vars", "Terms")

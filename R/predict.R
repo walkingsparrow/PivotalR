@@ -1,4 +1,3 @@
-
 ## -----------------------------------------------------------------------
 ## Predict
 ## -----------------------------------------------------------------------
@@ -41,15 +40,18 @@ predict.logregr.madlib.grps <- function (object, newdata,
     }
 }
 
+## ----------------------------------------------------------------------
+
 ## predict probability only for binomial models
 .predict.prob <- function(object, newdata)
 {
     if (is(object, "logregr.madlib")) object <- list(object)
     if (!is(newdata, "db.obj"))
         stop("New data for prediction must be a db.obj!")
-    
-    db.str <- (.get.dbms.str(conn.id(newdata)))$db.str
-    if (db.str == "HAWQ") stop("HAWQ does not support this!")
+
+    db <- .get.dbms.str(conn.id(newdata))
+    if (db$db.str == "HAWQ" && grepl("^1\\.1", db$version.str))
+        stop("MADlib on HAWQ 1.1 does not support this!")
     madlib <- schema.madlib(conn.id(newdata))
 
     strs <- .get.extra.str(newdata)
@@ -61,15 +63,23 @@ predict.logregr.madlib.grps <- function (object, newdata,
     parent <- strs$parent
     func.str <- paste(madlib, ".", "elastic_net_binomial_prob", sep = "")
 
-    if (!is(newdata, "db.data.frame"))
-        ind.vars <- .replace.col.with.expr(object[[1]]$ind.vars,
-                                           names(newdata),
-                                           newdata@.expr)
-    else
+    if (!is(newdata, "db.data.frame")) {
+        ## ind.vars <- .replace.col.with.expr(object[[1]]$ind.vars,
+        ##                                    names(newdata),
+        ##                                    newdata@.expr)
+        if (length(object[[1]]$dummy) != 0) {
+            l <- length(names(newdata))
+            for (i in seq_len(length(object[[1]]$dummy))) {
+                newdata[[object[[1]]$dummy[i]]] <- 1
+                newdata@.expr[l+i] <- object[[1]]$dummy.expr[i]
+            }
+        }
+        ind.vars <- .replace.col.with.expr1(object[[1]]$ind.vars, newdata)
+    } else
         ind.vars <- object[[1]]$ind.vars
     ind.str <- paste("array[", paste(ind.vars, collapse = ","), "]", sep = "")
 
-    if (length(object[[1]]$grp.cols) == 0) {
+    if (length(object) == 1) {
         if (object[[1]]$has.intercept) {
             coef <- object[[1]]$coef[-1]
             intercept <- object[[1]]$coef[1]
@@ -85,19 +95,23 @@ predict.logregr.madlib.grps <- function (object, newdata,
         expr <- "case when "
         n <- length(object)
         for (i in seq_len(n)) {
-            tmp <- ""
-            for (j in seq_len(l)) {
-                tmp <- paste(tmp, object[[i]]$grp.cols[j], " = '",
-                             object[[i]][[object[[i]]$grp.cols[j]]],
-                             "'::",
-                             newdata@.col.data_type[which(
-                                 names(newdata) == object[[i]]$grp.cols[j])],
-                             sep = "")
-                if (j != l) tmp <- paste(tmp, " and ", sep = "")
-            }
+            ## tmp <- ""
+            ## for (j in seq_len(l)) {
+            ##     ## tmp <- paste(tmp, object[[i]]$grp.expr[j], " = '",
+            ##     ##              object[[i]][[object[[i]]$grp.cols[j]]],
+            ##     ##              "'::",
+            ##     ##              newdata@.col.data_type[which(
+            ##     ##                  names(newdata) == object[[i]]$grp.cols[j])],
+            ##     ##              sep = "")
+            ##     tmp <- object[[i]]$data@.where
+            ##     if (j != l) tmp <- paste(tmp, " and ", sep = "")
+            ## }
+            tmp <- object[[i]]$data@.where
             if (!is(newdata, "db.data.frame"))
-                tmp <- .replace.col.with.expr(tmp, names(newdata),
-                                              newdata@.expr)
+                ## tmp <- .replace.col.with.expr(tmp, names(newdata),
+                ##                               newdata@.expr)
+                tmp <- .replace.col.with.expr1(gsub(" = ", " == ", tmp),
+                                               newdata)
             expr <- paste(expr, tmp, " then ", sep = "")
 
             if (object[[i]]$has.intercept) {
@@ -109,14 +123,14 @@ predict.logregr.madlib.grps <- function (object, newdata,
             }
             coef.i <- paste("array[", paste(coef, collapse = ", "), "]",
                             sep = "")
-            expr <- paste(expr, func.str, "(", coef, ", ", intercept, ", ",
+            expr <- paste(expr, func.str, "(", coef.i, ", ", intercept, ", ",
                           ind.str, ")", sep = "")
-            
+
             if (i < n)
                 expr <- paste(expr, " when ", sep = "")
             else
                 expr <- paste(expr, " end", sep = "")
-        }    
+        }
     }
 
     sql <- paste("select ", expr, " as madlib_predict from ",
@@ -145,6 +159,7 @@ predict.logregr.madlib.grps <- function (object, newdata,
         .col.udt_name = "float8",
         .where = where,
         .is.factor = FALSE,
+        .factor.ref = as.character(NA),
         .factor.suffix = "",
         .sort = sort,
         .dist.by = newdata@.dist.by)
@@ -156,13 +171,13 @@ predict.logregr.madlib.grps <- function (object, newdata,
 {
     if (is(object, "lm.madlib") || is(object, "logregr.madlib"))
         object <- list(object)
-    
+
     if (!is(newdata, "db.obj"))
         stop("New data for prediction must be a db.obj!")
 
-    db.str <- (.get.dbms.str(conn.id(newdata)))$db.str
+    db <- .get.dbms.str(conn.id(newdata))
     madlib <- schema.madlib(conn.id(newdata))
-    
+
     strs <- .get.extra.str(newdata)
     tbl <- strs$tbl
     where <- strs$where
@@ -171,25 +186,33 @@ predict.logregr.madlib.grps <- function (object, newdata,
     src <- strs$src
     parent <- strs$parent
 
-    if (!is(newdata, "db.data.frame"))
-        ind.vars <- .replace.col.with.expr(object[[1]]$ind.vars,
-                                           names(newdata),
-                                           newdata@.expr)
-    else
+    if (!is(newdata, "db.data.frame")) {
+        ## ind.vars <- .replace.col.with.expr(object[[1]]$ind.vars,
+        ##                                    names(newdata),
+        ##                                    newdata@.expr)
+        if (length(object[[1]]$dummy) != 0) {
+            l <- length(names(newdata))
+            for (i in seq_len(length(object[[1]]$dummy))) {
+                newdata[[object[[1]]$dummy[i]]] <- 1
+                newdata@.expr[l+i] <- object[[1]]$dummy.expr[i]
+            }
+        }
+        ind.vars <- .replace.col.with.expr1(object[[1]]$ind.vars, newdata)
+    } else
         ind.vars <- object[[1]]$ind.vars
-    if (db.str != "HAWQ") {
+    if (db$db.str != "HAWQ" || !grepl("^1\\.1", db$version.str)) {
         ind.str <- paste("array[", paste(ind.vars, collapse = ","), "]",
                          sep = "")
     } else {
         if (object[[1]]$has.intercept) ind.vars <- c(1, ind.vars)
     }
-    
+
     ## deal with groups
     ## coef.i <- which(names(object[[1]]) == "coef")
     ## grp.col <- names(object[[1]])[seq_len(coef.i - 1)]
 
-    if (length(object[[1]]$grp.cols) == 0) {
-        if (db.str != "HAWQ") {
+    if (length(object) == 1) {
+        if (db$db.str != "HAWQ" || !grepl("^1\\.1", db$version.str)) {
             if (object[[1]]$has.intercept) {
                 coef <- object[[1]]$coef[-1]
                 intercept <- object[[1]]$coef[1]
@@ -218,21 +241,25 @@ predict.logregr.madlib.grps <- function (object, newdata,
         n <- length(object)
         for (i in seq_len(n)) {
             tmp <- ""
-            for (j in seq_len(l)) {
-                tmp <- paste(tmp, object[[i]]$grp.cols[j], " = '",
-                             object[[i]][[object[[i]]$grp.cols[j]]],
-                             "'::",
-                             newdata@.col.data_type[which(
-                                 names(newdata) == object[[i]]$grp.cols[j])],
-                             sep = "")
-                if (j != l) tmp <- paste(tmp, " and ", sep = "")
-            }
+            ## for (j in seq_len(l)) {
+            ##     ## tmp <- paste(tmp, object[[i]]$grp.cols[j], " = '",
+            ##     ##              object[[i]][[object[[i]]$grp.cols[j]]],
+            ##     ##              "'::",
+            ##     ##              newdata@.col.data_type[which(
+            ##     ##                  names(newdata) == object[[i]]$grp.cols[j])],
+            ##     ##              sep = "")
+            ##     tmp <- object[[i]]$data@.where
+            ##     if (j != l) tmp <- paste(tmp, " and ", sep = "")
+            ## }
+            tmp <- object[[i]]$data@.where
             if (!is(newdata, "db.data.frame"))
-                tmp <- .replace.col.with.expr(tmp, names(newdata),
-                                              newdata@.expr)
+                ## tmp <- .replace.col.with.expr(tmp, names(newdata),
+                ##                               newdata@.expr)
+                tmp <- .replace.col.with.expr1(gsub(" = ", " == ", tmp),
+                                               newdata)
             expr <- paste(expr, tmp, " then ", sep = "")
-        
-            if (db.str != "HAWQ") {
+
+            if (db$db.str != "HAWQ" || !grepl("^1\\.1", db$version.str)) {
                 if (object[[i]]$has.intercept) {
                     coef <- object[[i]]$coef[-1]
                     intercept <- object[[i]]$coef[1]
@@ -242,7 +269,7 @@ predict.logregr.madlib.grps <- function (object, newdata,
                 }
                 coef.i <- paste("array[", paste(coef, collapse = ", "), "]",
                                 sep = "")
-                expr <- paste(expr, madlib, ".", func.str, "(", coef, ", ",
+                expr <- paste(expr, madlib, ".", func.str, "(", coef.i, ", ",
                               intercept, ", ", ind.str, ")", sep = "")
                 ## coef.i <- paste("array[", paste(object[[i]]$coef,
                 ##                                 collapse = ", "),
@@ -255,14 +282,14 @@ predict.logregr.madlib.grps <- function (object, newdata,
                 if (func.str == "logregr_predict")
                     expr <- paste(expr, " > 0", sep = "")
             }
-            
+
             if (i < n)
                 expr <- paste(expr, " when ", sep = "")
             else
                 expr <- paste(expr, " end", sep = "")
-        }    
+        }
     }
-    
+
     sql <- paste("select ", expr, " as madlib_predict from ",
                  tbl, where.str, sort$str, sep = "")
 
@@ -289,6 +316,7 @@ predict.logregr.madlib.grps <- function (object, newdata,
         .col.udt_name = udt.name,
         .where = where,
         .is.factor = FALSE,
+        .factor.ref = as.character(NA),
         .factor.suffix = "",
         .sort = sort,
         .dist.by = newdata@.dist.by)
@@ -309,3 +337,19 @@ predict.logregr.madlib.grps <- function (object, newdata,
     str
 }
 
+## ----------------------------------------------------------------------
+
+.replace.col.with.expr1 <- function(str, data)
+{
+    vars <- gsub("::[\\w\\s]+", "", str, perl = T)
+    vars <- gsub("\"", "`", vars)
+    ## vars <- gsub("\\(`([^\\[\\]]*)`\\)\\[(\\d+)\\]", "`(\\1)[\\2]`", vars)
+    vars <- gsub("\\s", "", vars)
+    vars <- .reverse.consistent.func(vars)
+    as.vector(sapply(
+        vars,
+        function(s) {
+            r <- eval(parse(text = paste("with(data, ", s, ")", sep = "")))
+            r@.expr
+        }))
+}

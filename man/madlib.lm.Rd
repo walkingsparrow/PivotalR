@@ -19,7 +19,7 @@
 }
 
 \usage{
-madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
+madlib.lm(formula, data, na.action = NULL, hetero = FALSE, na.as.level = FALSE, ...)
 }
 
 \arguments{
@@ -53,6 +53,11 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
   for more details.
   }
 
+  \item{na.as.level}{
+      A logical value, default is \code{FALSE}. Whether to treat \code{NA}
+      value as a level in a categorical variable or just ignore it.
+  }
+
   \item{\dots}{
     More parameters can be passed into this function. Currently, it is
     just a place holder and any parameter here is not used.
@@ -65,11 +70,11 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
   the fitting is done conditioned on the values of one or more
   variables. For example, \code{y ~ x + sin(z) | v + w} will do the
   fitting each distinct combination of the values of \code{v} and
-  \code{w}. 
+  \code{w}.
 
   Both the linear regression (this function) and the logistic regression
-  (\code{\link{madlib.glm}}) support categorial variables. Use
-  \code{\link{as.factor,db.obj-method}} to denote that a variable is categorial, and
+  (\code{\link{madlib.glm}}) support categorical variables. Use
+  \code{\link{as.factor,db.obj-method}} to denote that a variable is categorical, and
   the corresponding dummy variables are created and fitted. See
   \code{\link{as.factor,db.obj-method}} for more.
 }
@@ -78,7 +83,7 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
   If there is no grouping (i.e. no \code{|} in the formula), the result
   is a \code{lm.madlib} object. Otherwise, it is a \code{lm.madlib.grps}
   object, which is just a list of \code{lm.madlib} objects.
-  
+
   A \code{lm.madlib} object is a list which contains the following items:
 
   \item{grouping column(s)}{
@@ -98,7 +103,7 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
     number of rows is equal to the number of distinct combinations of
     all the grouping column values. The number of columns is equal to
     the number features (including intercept if it presents in the
-    formula). 
+    formula).
   }
 
   \item{r2}{
@@ -107,7 +112,7 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
   }
 
   \item{std_err}{
-    A numeric matrix, the standard error for each coefficients. 
+    A numeric matrix, the standard error for each coefficients.
   }
 
   \item{t_stats}{
@@ -171,7 +176,7 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
     we are dealing with the factor variables, where the dummy variable
     names can be very long due to the inserting of a random string to
     avoid naming conflicts, see \code{\link{as.factor,db.obj-method}}
-    for details. The list also contains \code{dummy} and \code{dummy.expr}, which are also used for processing the categorial variables, but do not contain any important information.
+    for details. The list also contains \code{dummy} and \code{dummy.expr}, which are also used for processing the categorical variables, but do not contain any important information.
   }
 
   \item{model}{
@@ -181,14 +186,18 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
 
   \item{terms}{ A \code{\link{terms}} object, describing the terms in
     the model formula.  }
-  
+
   \item{nobs}{
     The number of observations used to fit the model.
   }
 
-  \item{data}{The original \code{db.obj} object, which wraps all the
-  data used in the database.}
-  
+  \item{data}{A \code{db.obj} object, which wraps all the
+  data used in the database. If there are fittings for multiple groups,   then this is only the wrapper for the data in one group.}
+
+\item{origin.data}{
+  The original \code{db.obj} object. When there is no grouping, it is equal to \code{data} above, otherwise it is the "sum" of \code{data} from all groups.
+}
+
   Note that if there is grouping done, and there are multiple
   \code{lm.madlib} objects in the final result, each one of them
   contains the same copy \code{model}.
@@ -219,45 +228,56 @@ madlib.lm(formula, data, na.action = NULL, hetero = FALSE, ...)
   \code{\link{madlib.summary}}, \code{\link{madlib.arima}} are MADlib
   wrapper functions.
 
-  \code{\link{as.factor}} creates categorial variables for fitiing.
+  \code{\link{as.factor}} creates categorical variables for fitiing.
 
   \code{\link{delete}} safely deletes the result of this function.
 }
 \examples{
 \dontrun{
-## connect to a data base
-db.connect(dbname = "exampledb", user = "example", host = "localhost", port = 5433)
-x <- db.data.frame("madlibtestdata.lin_ornstein")
-preview(x, 10)
+%% @test .port Database port number
+%% @test .dbname Database name
+## set up the database connection
+## Assume that .port is port number and .dbname is the database name
+cid <- db.connect(port = .port, dbname = .dbname, verbose = FALSE)
+
+x <- as.db.data.frame(abalone, conn.id = cid, verbose = FALSE)
+lk(x, 10)
 
 ## linear regression conditioned on nation value
 ## i.e. grouping
-fit <- madlib.lm(interlocks ~ . | nation, data = x, heteroskedasticity = T)
+fit <- madlib.lm(rings ~ . - id | sex, data = x, heteroskedasticity = T)
 fit
 
 ## use I(.) for expressions
-fit <- madlib.lm(interlocks ~ assets + sector + nation + I(assets^2),
+fit <- madlib.lm(rings ~ length + diameter + shell + I(diameter^2),
 data = x, heteroskedasticity = T)
 fit # display the result
 
 ## Another example
-x <- as.db.data.frame(abalone, "abalone")
-
-fit <- madlib.lm(rings ~ . - id | sex + length + height, data = x)
+fit <- madlib.lm(rings ~ . - id | sex + (id < 2000), data = x)
 
 ## 3rd example
 ## The table has two columns: x is an array, y is double precision
-array.data <- db.data.frame("tbl_has_array_column")
+dat <- x
+dat$arr <- db.array(x[,-c(1,2)])
+array.data <- as.db.data.frame(dat)
 
 ## Fit to y using every element of x
 ## This does not work in R's lm, but works in madlib.lm
-fit <- madlib.lm(y ~ x, data = array.data)
+fit <- madlib.lm(rings ~ arr, data = array.data)
 
-fit <- madlib.lm(y ~ x - x[1], data = array.data)
+fit <- madlib.lm(rings ~ arr - arr[1], data = array.data)
 
-fit <- madlib.lm(y ~ . - x[1:2], data = array.data)
+fit <- madlib.lm(rings ~ . - arr[1:2], data = array.data)
 
-fit <- madlib.lm(as.integer(y < 10) ~ . - x[1:2], data = array.data)
+fit <- madlib.lm(as.integer(rings < 10) ~ . - arr[1:2], data = array.data)
+
+## 4th example
+## Step-wise feature selection
+start <- madlib.lm(rings ~ . - id - sex, data = x)
+## step(start)
+
+db.disconnect(cid)
 }
 }
 

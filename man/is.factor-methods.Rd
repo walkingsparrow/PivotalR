@@ -3,11 +3,11 @@
 \alias{is.factor,db.obj-method}
 
 \title{ Detect whether a \code{\linkS4class{db.obj}} object is a
-  categorial object }
+  categorical object }
 
 \description{
   This function detects whether a \code{\linkS4class{db.obj}} object is a
-  categorial object. 
+  categorical object.
 }
 
 \usage{
@@ -16,39 +16,45 @@
 
 \arguments{
   \item{x}{
-    A \code{\linkS4class{db.obj}} object. 
+    A \code{\linkS4class{db.obj}} object.
   }
 }
 
 \value{
   A logical value. When all columns of \code{\linkS4class{db.obj}} are
-  categorial variables, this function returns \code{TRUE}.
+  categorical variables, this function returns \code{TRUE}.
 }
 
 \author{
   Author: Predictive Analytics Team at Pivotal Inc.
-  
+
   Maintainer: Hai Qian, Pivotal Inc. \email{hqian@gopivotal.com}
 }
 
 \seealso{
   \code{\link{as.factor,db.obj-method}} converts a column
-  \code{\linkS4class{db.obj}} of into categorial variables.
+  \code{\linkS4class{db.obj}} of into categorical variables.
 }
 
 \examples{
 \dontrun{
-## Suppose that a valid connection with ID 1 is already created by db.connect
+%% @test .port Database port number
+%% @test .dbname Database name
+## set up the database connection
+## Assume that .port is port number and .dbname is the database name
+cid <- db.connect(port = .port, dbname = .dbname, verbose = FALSE)
 
 ## create a table from the example data.frame "abalone"
-x <- as.db.data.frame(abalone, "abalone") # use default connection 1
+x <- as.db.data.frame(abalone, conn.id = cid, verbose = FALSE)
 
-## set sex to be a categorial variable
+## set sex to be a categorical variable
 x$sex <- as.factor(x$sex)
 
 is.factor(x$sex)
 
 is.factor(x)
+
+db.disconnect(cid, verbose = FALSE)
 }
 }
 

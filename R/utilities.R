@@ -1,4 +1,3 @@
-
 ## -----------------------------------------------------------------------
 ## utility functions exposed to the users
 ## -----------------------------------------------------------------------
@@ -29,16 +28,16 @@ is.db.data.frame <- function (x)
         valid[[i]] <- y[y[,id]>tick[i] & y[,id]<=tick[i+1],-id]
         train[[i]] <- y[!(y[,id]>tick[i] & y[,id]<=tick[i+1]),-id]
     }
-    
+
     list(train = train, valid = valid, inter = y, dist.by = y@.dist.by)
 }
 
 ## ----------------------------------------------------------------------
 
 ## suppress all warnings
-.suppress.warnings <- function (conn.id)
+.suppress.warnings <- function (conn.id, level = "panic")
 {
-    msg.level <- .set.msg.level("panic", conn.id = conn.id)
+    msg.level <- .set.msg.level(level, conn.id = conn.id)
     warn.r <- getOption("warn")
     options(warn = -1)
     list(msg.level = msg.level, warn.r = warn.r, conn.id = conn.id)
@@ -49,7 +48,7 @@ is.db.data.frame <- function (x)
 ## restore all warning levels
 .restore.warnings <- function (pre.warn)
 {
-    msg.level <- .set.msg.level(pre.warn$msg.level, pre.warn$conn.id) 
+    msg.level <- .set.msg.level(pre.warn$msg.level, pre.warn$conn.id)
     options(warn = pre.warn$warn.r) # reset R warning level
 }
 
@@ -60,7 +59,7 @@ is.db.data.frame <- function (x)
 .get.package.path <- function ()
 {
     version <- .localVars$R.ver
-    if (version != R.version.string && as.numeric(version) < 2.13) 
+    if (version != R.version.string && as.numeric(version) < 2.13)
         eval(parse(text = paste(".path.package(\"", .this.pkg.name, "\")",
                    sep = "")))
     else
@@ -130,7 +129,7 @@ is.db.data.frame <- function (x)
         y
     } else {
         regmatches(x, m, invert)
-    }    
+    }
 }
 
 ## ----------------------------------------------------------------------
@@ -157,8 +156,8 @@ is.db.data.frame <- function (x)
         table.schema <- table[1]
     } else {
         schemas <- arraydb.to.arrayr(
-            .get.res(sql="select current_schemas(True)",
-                     conn.id=conn.id, warns=NULL),
+            db.q("select current_schemas(True)",
+                 conn.id=conn.id, verbose = FALSE),
             type = "character")
         table_schema <- character(0)
         for (schema in schemas)
@@ -226,4 +225,109 @@ is.db.data.frame <- function (x)
 
     list(tbl = tbl, where = where, where.str = where.str, sort = sort,
          src = src, parent = parent)
+}
+
+## ----------------------------------------------------------------------
+
+setGeneric("rowSums")
+
+.row.action <- function (x, action)
+{
+    x <- db.array(x)[,]
+    ## Reduce(function(l,r) l+r, as.list(x))
+    res <- x[,1]
+    res@.expr <- paste(x@.expr, collapse = action)
+    res@.content <- gsub("^select 1 as", paste("select", res@.expr, "as"),
+                         res@.content)
+    res
+}
+
+setMethod("rowSums",
+    signature(x = "db.obj"),
+    function (x, na.rm = FALSE, dims = 1, ...)
+    {
+        .row.action(x, "+")
+    }
+)
+
+## ----------------------------------------------------------------------
+
+setGeneric("rowMeans")
+
+setMethod("rowMeans",
+    signature(x = "db.obj"),
+    function (x, na.rm = FALSE, dims = 1, ...)
+    {
+        rowSums(x) / length(names(x))
+    }
+)
+
+## ----------------------------------------------------------------------
+
+## combine a list of db.obj faster than using reduce
+.combine.list <- function (lst)
+{
+    n <- length(lst)
+    if (n == 1) return (lst[[1]])
+    res <- NULL
+    for (i in seq_len(n)) {
+        if (is(lst[[i]], "db.data.frame")) {
+            if (ncol(lst[[i]]) == 1 && lst[[i]]@.col.data_type == "array")
+                lst[[i]] <- db.array(lst[[i]])
+            else
+                lst[[i]] <- lst[[i]][,]
+        }
+        if (is(lst[[i]], "db.obj") && is.null(res)) res <- lst[[i]]
+    }
+
+    ## res <- lst[[1]]
+    res@.expr <- unlist(lapply(lst, function(x) {if (is(x, "db.obj"))
+                                                     x@.expr else x}))
+    res@.col.name <- unlist(
+        lapply(lst, function(x) {
+            if (is(x, "db.obj"))
+                x@.col.name else
+            sapply(seq_len(length(x)), function(i) .unique.string())}))
+    res@.col.data_type <- unlist(lapply(lst, function(x) {
+        if (is(x, "db.obj"))
+            x@.col.data_type
+        else {
+            if (typeof(x) == "character") rep("text", length(x))
+            else if (typeof(x) == "boolean")
+                rep("boolean", length(x))
+            else rep("double precision", length(x))
+        }}))
+    res@.col.udt_name <- unlist(lapply(lst, function(x) {
+        if (is(x, "db.obj"))
+            x@.col.udt_name
+        else {
+            if (typeof(x) == "character") rep("text", length(x))
+            else if (typeof(x) == "boolean")
+                rep("bool", length(x))
+            else rep("float8", length(x))
+        }}))
+    res@.is.factor <- unlist(lapply(lst, function(x) {if (is(x, "db.obj"))
+                             x@.is.factor else rep(FALSE, length(x))}))
+    res@.factor.suffix <- unlist(
+        lapply(lst, function(x) {
+            if (is(x, "db.obj"))
+                x@.factor.suffix else rep("", length(x))}))
+    res@.is.agg <- unlist(
+        lapply(lst, function(x) {
+            if (is(x, "db.obj"))
+                x@.is.agg else rep(FALSE, length(x))}))
+
+    if (res@.source == res@.parent)
+        tbl <- res@.parent
+    else
+        tbl <- "(" %+% res@.parent %+% ") s"
+    where <- res@.where
+    if (where != "") where.str <- paste(" where", where)
+    else where.str <- ""
+    sort <- res@.sort
+    res@.content <- paste("select ",
+                          paste(res@.expr, " as \"", res@.col.name, "\"",
+                                collapse = ",", sep = ""),
+                          " from ", tbl, where.str, sort$str, sep = "")
+    res
 }

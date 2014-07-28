@@ -3,7 +3,7 @@
 ## inplement in R space
 ## ----------------------------------------------------------------------
 
-setGeneric("na.omit")
+setGeneric("na.omit", function(object, ...) standardGeneric("na.omit"))
 
 setMethod(
     "na.omit",
@@ -18,14 +18,14 @@ setMethod(
         warn.r <- getOption("warn")
         options(warn = -1)
 
-        cond <- Reduce(function (v, w) v | w,
-                       Filter(function (v) !is.null(v),
-                              unlist(Map(function (v)
-                                         eval(parse(text = paste(
-                                                    "with(object, is.na(",
-                                                    gsub("\"", "`", v), "))",
-                                                    sep = ""))),
-                                         vars))))
+        cond <- .row.action(.combine.list(Filter(function (v) !is.null(v),
+                                                 Map(function (v)
+                                                     eval(parse(text = paste(
+                                                                "with(object, is.na(",
+                                                                gsub("\"", "`", v),
+                                                                "))",
+                                                                sep = ""))),
+                                                     vars))), " or ")
         
         options(warn = warn.r)
         x[!(cond),]

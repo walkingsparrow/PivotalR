@@ -1,4 +1,3 @@
-
 ## -----------------------------------------------------------------------
 ## Generic cross-validation, not a wrapper of MADlib function
 ## -----------------------------------------------------------------------
@@ -54,10 +53,10 @@ generic.cv <- function (train, predict, metric, data,
         err <- numeric(0)
         for (i in 1:k) {
             if (verbose) cat("Running on fold", i, "now ...\n")
-            fits <- train(data = cuts$train[[i]])
-            pred <- predict(object = fits, newdata = cuts$valid[[i]])
-            err <- c(err, as.numeric(metric(predicted = pred, actual = cuts$valid[[i]])))
-            delete(fits)
+            fits <- train(cuts$train[[i]])
+            pred <- predict(fits, cuts$valid[[i]])
+            err <- c(err, as.numeric(metric(pred, cuts$valid[[i]])))
+            if (is(data, "db.obj")) delete(fits)
         }
 
         if (is(data, "db.obj")) {
@@ -88,12 +87,11 @@ generic.cv <- function (train, predict, metric, data,
                     else
                         args <- rbind(args, as.vector(unlist(arg.list)))
                 }
-                arg.list$data <- cuts$train[[i]]
+                arg.list[[length(arg.list)+1]] <- cuts$train[[i]]
                 fits <- do.call(train, arg.list)
-                pred <- predict(object = fits, newdata = cuts$valid[[i]])
-                err.k <- c(err.k, as.numeric(metric(predicted = pred,
-                                                    actual = cuts$valid[[i]])))
-                delete(fits)
+                pred <- predict(fits, cuts$valid[[i]])
+                err.k <- c(err.k, as.numeric(metric(pred, cuts$valid[[i]])))
+                if (is(data, "db.obj")) delete(fits)
             }
             err <- rbind(err, err.k)
         }
@@ -108,8 +106,9 @@ generic.cv <- function (train, predict, metric, data,
         if (verbose) cat("Fitting the best model using the whole data set ... ")
         if (find.min) best <- which.min(rst$avg)
         else best <- which.max(rst$avg)
+
         arg.list <- .create.args(arg.names, params, best)
-        arg.list$data <- data
+        arg.list[[length(arg.list) + 1]] <- data
         best.fit <- do.call(train, arg.list)
         arg.list$data <- NULL
         if (verbose) cat("Done.\n")
@@ -124,6 +123,7 @@ generic.cv <- function (train, predict, metric, data,
         }
         res <- list(metric = rst, params = args, best = best.fit, best.params = arg.list)
         class(res) <- "cv.generic"
+        res
     }
 }
 
@@ -154,41 +154,40 @@ generic.cv <- function (train, predict, metric, data,
 
 ## cut the data in an approximate way, but faster
 .approx.cut.data <- function (x, k)
-{    
+{
     conn.id <- conn.id(x)
     tmp <- .unique.string()
     id.col <- .unique.string()
     dbms <- (.get.dbms.str(conn.id))$db.str
     if (dbms != "PostgreSQL") {
         dist.cols <- x@.dist.by
-        if (identical(dist.cols, character(0))) {
+        if (identical(dist.cols, character(0)) ||
+            !all(dist.cols %in% x@.col.name)) {
             dist.str <- paste("distributed by (", id.col, ")", sep = "")
             dist.by <- id.col
         } else {
-            dist.str <- paste("distributed by (", dist.cols, ")", sep = "")
+            dist.str <- paste("distributed by (",
+                              paste("\"", dist.cols, "\"", sep = ""),
+                              ")", sep = "")
             dist.by <- dist.cols
         }
     } else {
         dist.str <- ""
         dist.by <- ""
     }
-    if (is(x, "db.data.frame")) tbl <- content(x)
-    else {
-        if (x@.parent == x@.source)
-            tbl <- x@.parent
-        else
-            tbl <- paste("(", x@.parent, ") s", sep = "")
-    }
+
     random.col <- x[,1]
     random.col@.expr <- "random()"
     random.col@.col.name <- id.col
     random.col@.col.data_type <- "double precision"
     random.col@.col.udt_name <- "float8"
     random.col@.is.factor <- FALSE
+    random.col@.factor.ref <- as.character(NA)
     random.col@.factor.suffix <- ""
     random.col@.content <- gsub("select\\s+.*\\s+from",
                                 paste("select random() as", id.col, "from"),
                                 random.col@.content)
+
     x[[id.col]] <- random.col
     y <- as.db.data.frame(x, is.temp = TRUE, verbose = FALSE, pivot = FALSE)
     id <- ncol(y)
@@ -203,26 +202,24 @@ generic.cv <- function (train, predict, metric, data,
     list(train = train, valid = valid, inter = y, dist.by = dist.by)
 }
 
-## ----------------------------------------------------------------------
+## ## ----------------------------------------------------------------------
 
-## plot.cv.generic <- function (x, ...) 
+## plot.cv.generic <- function (x, ...)
 ## {
 ##     cvobj = x
 ##     xlab = "params"
-##     if (sign.lambda < 0) 
-##         xlab = paste("-", xlab, sep = "")
-##     plot.args = list(x = sign.lambda * log(cvobj$lambda), y = cvobj$cvm, 
-##         ylim = range(cvobj$cvup, cvobj$cvlo), xlab = xlab, ylab = cvobj$name, 
-##         type = "n")
+##     plot.args = list(x = , y = x$metric$avg,
+##     ylim = range(cvobj$cvup, cvobj$cvlo), xlab = xlab, ylab = cvobj$name,
+##     type = "n")
 ##     new.args = list(...)
-##     if (length(new.args)) 
+##     if (length(new.args))
 ##         plot.args[names(new.args)] = new.args
 ##     do.call("plot", plot.args)
-##     error.bars(sign.lambda * log(cvobj$lambda), cvobj$cvup, cvobj$cvlo, 
+##     error.bars(sign.lambda * log(cvobj$lambda), cvobj$cvup, cvobj$cvlo,
 ##         width = 0.01, col = "darkgrey")
-##     points(sign.lambda * log(cvobj$lambda), cvobj$cvm, pch = 20, 
+##     points(sign.lambda * log(cvobj$lambda), cvobj$cvm, pch = 20,
 ##         col = "red")
-##     axis(side = 3, at = sign.lambda * log(cvobj$lambda), labels = paste(cvobj$nz), 
+##     axis(side = 3, at = sign.lambda * log(cvobj$lambda), labels = paste(cvobj$nz),
 ##         tick = FALSE, line = 0)
 ##     abline(v = sign.lambda * log(cvobj$lambda.min), lty = 3)
 ##     abline(v = sign.lambda * log(cvobj$lambda.1se), lty = 3)

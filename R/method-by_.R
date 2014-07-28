@@ -1,4 +1,3 @@
-
 ## -----------------------------------------------------------------------
 ## by method
 ## -----------------------------------------------------------------------
@@ -9,28 +8,31 @@ setMethod (
     "by",
     signature(data = "db.obj"),
     function (data, INDICES, FUN, ..., simplify = TRUE) {
+        if (is.null(INDICES)) return (FUN(data, ...))
         if (is.list(INDICES))
-            indx <- Reduce(cbind, INDICES[-1], INDICES[[1]])
+            indx <- .combine.list(INDICES)
         else
             indx <- INDICES
-        v <- lk(indx, 1, array = FALSE)
+        v <- lk(as.character(indx, array = FALSE), 1, array = FALSE)
         add.quotes <- function (str)
             unlist(Map(function (x)
                        if (is.character(x)) paste("\"", x, "\"", sep = "")
                        else x, str))
         v <- add.quotes(v)
+
         get.piece <- function (x, indx, v) {
-            s <- paste(gsub("\"", "`", indx@.expr), "==", v, sep = "",
-                       collapse = " && ")
-            for (i in which(is.na(v)))
-                s <- gsub(paste(gsub("\"", "`", indx@.expr[i]), "==", v[i],
-                                sep = ""),
-                          paste("is.na(", indx@.expr[i], ")", sep = ""), s)
-            eval(parse(text = paste("with(x, x[", s, ",])",
-                       sep = "")))
+            eval(parse(
+                text = paste("x[",
+                paste(ifelse(
+                    is.na(v),
+                    paste("is.na(indx[,", seq_len(length(v)), "])", sep = ""),
+                    paste("indx[,", seq_len(length(v)), "] == ", v, sep = "")),
+                      collapse = " & "),
+                ",]")))
         }
-        use <- get.piece(data, indx, v)
-        fit0 <- FUN(use)
+
+        use <- get.piece(data, as.character(indx), v)
+        fit0 <- FUN(use, ...)
         if (!is(fit0, "db.obj")) {
             vals <- lk(unique(db.array(as.character(indx, array = FALSE))))
             if (!is.data.frame(vals))
@@ -43,8 +45,10 @@ setMethod (
                     rst[[1]]$index <- vals[i,]
                     next
                 }
-                use <- get.piece(data, indx, w)
-                rst[[count+1]] <- list(index = vals[i,], result = FUN(use))
+
+                use <- get.piece(data, as.character(indx), w)
+                rst[[count+1]] <- list(index = vals[i,],
+                                       result = FUN(use, ...))
                 count <- count + 1
             }
             return (rst)
@@ -96,7 +100,7 @@ setMethod (
                 src <- parent
             }
 
-            tmp <- FUN(data)
+            tmp <- FUN(data, ...)
 
             expr <- tmp@.expr
             col.name <- tmp@.col.name
@@ -125,8 +129,9 @@ setMethod (
                 .col.data_type = col.data_type,
                 .col.udt_name = col.udt_name,
                 .where = where,
-                .is.factor = rep(FALSE, length(names(data))),
-                .factor.suffix = rep("", length(names(data))),
+                .is.factor = rep(FALSE, length(names(data)) + length(by.name)),
+                .factor.ref = rep(as.character(NA), length(names(data)) + length(by.name)),
+                .factor.suffix = rep("", length(names(data)) + length(by.name)),
                 .sort = list(by = "", order = "", str = ""),
                 .dist.by = data@.dist.by)
         }

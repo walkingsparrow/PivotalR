@@ -44,7 +44,7 @@ setMethod (
         if (is(x, "db.data.frame")) {
             content <- paste("select * from ", content(x),
                              sort$str, sep = "")
-            expr <- names(x)
+            expr <- paste("\"", names(x), "\"", sep = "")
             src <- content(x)
             parent <- src
             where <- ""
@@ -68,6 +68,7 @@ setMethod (
             .col.udt_name = x@.col.udt_name,
             .where = where,
             .is.factor = x@.is.factor,
+            .factor.ref = x@.factor.ref,
             .factor.suffix = x@.factor.suffix,
             .sort = sort,
             .dist.by = x@.dist.by)

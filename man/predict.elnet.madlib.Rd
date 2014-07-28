@@ -8,7 +8,7 @@
   Prediction from models fit by \code{\link{madlib.elnet}}
 }
 \usage{
-\method{predict}{elnet.madlib}(object, newdata, type = "default", ...)
+\method{predict}{elnet.madlib}(object, newdata, type = c("response", "prob"), ...)
 }
 
 \arguments{
@@ -17,10 +17,10 @@
 }
   \item{newdata}{
     A \code{\linkS4class{db.obj}} object, which wraps the data in the
-    database. 
+    database.
 }
   \item{type}{
-    A string, default is "default". The other option is "response". The prediction for "gaussian"/"linear" family of \code{\link{madlib.elnet}} result is always for the dependent variable. The prediction for "binomial"/"logistic" family is \code{TRUE/FALSE} values for "default", and probabilities of \code{TRUE} for "response".
+    A string, default is "response". The other option is "prob". The prediction for "gaussian"/"linear" family of \code{\link{madlib.elnet}} result is always for the dependent variable. The prediction for "binomial"/"logistic" family is \code{TRUE/FALSE} values for "response", and probabilities of \code{TRUE} for "prob".
 }
   \item{\dots}{
     Extra parameters. Not implemented yet.
@@ -34,7 +34,7 @@
 
 \author{
   Author: Predictive Analytics Team at Pivotal Inc.
-  
+
   Maintainer: Hai Qian, Pivotal Inc. \email{hqian@gopivotal.com}
 }
 
@@ -47,12 +47,7 @@
 }
 
 \examples{
-##---- Should be DIRECTLY executable !! ----
-##-- ==>  Define data, use random,
-##--	or do  help(data=index)  for the standard data sets.
-
-## The function is currently defined as
-"predict.elnet.madlib"
+## see the examples in madlib.elnet
 }
 
 \keyword{madlib}

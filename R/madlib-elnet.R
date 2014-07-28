@@ -1,4 +1,3 @@
-
 ## ----------------------------------------------------------------------
 ## Wrapper function for MADlib's elastic_net function
 ## ----------------------------------------------------------------------
@@ -6,18 +5,20 @@
 setClass("elnet.madlib")
 
 madlib.elnet <- function (formula, data,
-                          family = c("gaussian", "linear", "binomial", "logistic"),
-                          na.action = NULL,
+                          family = c("gaussian", "linear", "binomial",
+                          "logistic"),
+                          na.action = NULL, na.as.level = FALSE,
                           alpha = 1, lambda = 0.1, standardize = TRUE,
-                          method = c("fista", "igd", "sgd"), control = list(),
+                          method = c("fista", "igd", "sgd", "cd"),
+                          control = list(),
                           glmnet = FALSE, ...)
 {
     family <- match.arg(family)
     method <- match.arg(method)
-    control <- .validate.method(method, control)
+    family <- .validate.family(family)
+    control <- .validate.method(method, family, control)
     method <- tolower(method)
     if (method == "sgd") method <- "igd"
-    family <- .validate.family(family)
     call <- match.call()
 
     if (!is(data, "db.obj"))
@@ -27,13 +28,13 @@ madlib.elnet <- function (formula, data,
     .check.madlib.version(data)
     conn.id <- conn.id(data)
 
-    db.str <- (.get.dbms.str(conn.id))$db.str
-    if (db.str == "HAWQ")
-        stop("Current HAWQ does not support this function!")
+    db <- .get.dbms.str(conn.id)
+    if (db$db.str == "HAWQ" && grepl("^1\\.1", db$version.str))
+        stop("MADlib on HAWQ 1.1 does not support this function!")
 
     warnings <- .suppress.warnings(conn.id)
 
-    analyzer <- .get.params(formula, data, na.action)
+    analyzer <- .get.params(formula, data, na.action, na.as.level)
     data <- analyzer$data
 
     params <- analyzer$params
@@ -55,6 +56,20 @@ madlib.elnet <- function (formula, data,
     params$ind.str <- gsub("\\[1,", "\\[", params$ind.str)
     tbl.output <- .unique.string()
 
+    if (family == "gaussian" && method == "cd") {
+        .restore.warnings(warnings)
+        return (.elnet.gaus.cd(data, params$ind.vars, params$origin.dep,
+                               alpha, lambda, standardize, control, glmnet,
+                               params, call))
+    }
+
+    if (family == "binomial" && method == "cd") {
+        .restore.warnings(warnings)
+        return (.elnet.binom.cd(data, params$ind.vars, params$origin.dep,
+                                alpha, lambda, standardize, control, params,
+                                call))
+    }
+
     if (glmnet && family == "gaussian") {
         y <- scale(eval(parse(text = paste("with(data, ",
                               deparse(params$terms[[2]]), ")",
@@ -67,6 +82,8 @@ madlib.elnet <- function (formula, data,
         dep <- y@.expr
     } else {
         dep <- params$dep.str
+        y.scl <- 1
+        y.ctr <- 0
     }
 
     if (family == "binomial") dep <- paste("(", dep, ")::boolean", sep = "")
@@ -78,10 +95,12 @@ madlib.elnet <- function (formula, data,
                  control$control.str, "', NULL, ", control$max.iter, ", ",
                  control$tolerance, ")", sep = "")
 
-    res <- .get.res(sql, tbl.output, conn.id)
+    res <- db.q(sql, conn.id=conn.id, verbose = FALSE)
+    res <- db.q("select * from", tbl.output, conn.id=conn.id, verbose=FALSE,
+                sep = " ", nrows = -1)
     model <- db.data.frame(tbl.output, conn.id = conn.id, verbose = FALSE)
 
-    if (is.tbl.source.temp) .db.removeTable(tbl.source, conn.id)
+    if (is.tbl.source.temp) delete(tbl.source, conn.id)
     .restore.warnings(warnings)
 
     ## prepare the result
@@ -89,13 +108,16 @@ madlib.elnet <- function (formula, data,
     rst$coef <- as.vector(arraydb.to.arrayr(res$coef_all, "double"))
 
     rows <- gsub("\"", "", params$ind.vars)
-    rst$ind.vars <- rows
+    rows <- gsub("::[\\w\\s]+", "", rows, perl = T)
+    rst$ind.vars <- params$ind.vars
     col.name <- gsub("\"", "", data@.col.name)
     appear <- data@.appear.name
     for (i in seq_len(length(col.name)))
         if (col.name[i] != appear[i])
             rows <- gsub(col.name[i], appear[i], rows)
-    rows <- gsub("\\((.*)\\)\\[(\\d+)\\]", "\\1[\\2]", rows)
+    rows <- gsub("\\(([^\\[\\]]*?)\\)\\[(\\d+?)\\]", "\\1[\\2]", rows)
+    rows <- .reverse.consistent.func(rows)
+    rows <- gsub("\\s", "", rows)
     names(rst$coef) <- rows
 
     rst$intercept <- res$intercept
@@ -115,6 +137,7 @@ madlib.elnet <- function (formula, data,
     rst$ind.str <- params$ind.str
     rst$dummy <- data@.dummy
     rst$dummy.expr <- data@.dummy.expr
+    rst$col.name <- gsub("\"", "", data@.col.name)
     rst$appear <- appear
     rst$terms <- params$terms
     rst$model <- model
@@ -123,6 +146,9 @@ madlib.elnet <- function (formula, data,
     rst$lambda <- lambda
     rst$method <- method
     rst$family <- family
+    rst$max.iter <- control$max.iter
+    rst$tolerance <- control$tolerance
+    rst$factor.ref <- data$factor.ref
     class(rst) <- "elnet.madlib"
     rst
 }
@@ -143,13 +169,14 @@ madlib.elnet <- function (formula, data,
 
 ## ----------------------------------------------------------------------
 
-.validate.method <- function (method, control)
+.validate.method <- function (method, family, control)
 {
     if (!is.character(method)) stop("method must be \"fista\" or \"igd\"!")
     method <- tolower(method)
     if (!is.list(control)) stop("control must be a list of parameters!")
-    if (! method %in% c("fista", "igd"))
-        stop("MADlib only supports FISTA and IGD!")
+    if (! method %in% c("fista", "igd", "cd"))
+        stop("PivotalR only supports FISTA, IGD and CD!")
+    origin.control <- control
     if (method == "igd" &&
         !all(names(control) %in% c("step.size", "step.decay", "threshold",
                                    "warmup", "warmup.lambdas",
@@ -160,22 +187,33 @@ madlib.elnet <- function (formula, data,
                                    "warmup.lambdas", "warmup.lambda.no",
                                    "warmup.tolerance", "use.active.set",
                                    "activeset.tolerance", "random.stepsize",
-                                   "max.iter", "tolerance")))
+                                   "max.iter", "tolerance")) ||
+        method == "cd" && family == "binomial" &&
+        !all(names(control) %in% c("max.iter", "tolerance",
+                                   "use.active.set", "verbose",
+                                   "warmup", "warmup.lambda.no")) ||
+        method == "cd" && family == "gaussian" &&
+        !all(names(control) %in% c("max.iter", "tolerance",
+                                   "use.active.set", "verbose")))
         stop("Some of the control parameters are not supported!")
 
-    names(control) <- gsub("\\.", "_", names(control))
-
     ## max_iter and tolerance are not in SQL's optimizer_params
-    max.iter <- 10000
+    max.iter <- 100
     tolerance <- 1e-4
     if ("max.iter" %in% names(control)) {
-        max.iter <- control$max_iter
-        control$max_iter <- NULL
+        max.iter <- control$max.iter
+        control$max.iter <- NULL
     }
+    if (max.iter != as.integer(max.iter))
+        stop("max.iter must be an integer!")
     if ("tolerance" %in% names(control)) {
         tolerance <- control$tolerance
         control$tolerance <- NULL
     }
+    if (!"use.active.set" %in% names(control))
+        control$use.active.set <- FALSE
+
+    use.active.set <- control$use.active.set
 
     nms <- names(control)
     for (i in seq_len(length(names(control)))) {
@@ -190,12 +228,14 @@ madlib.elnet <- function (formula, data,
                                   "]", sep = "")
         }
     }
+    nms <- gsub("\\.", "_", nms)
 
     list(control.str = if (is.null(nms) ||
          identical(nms, character(0))) ""
     else paste(nms, " = ", as.character(control),
                sep = "", collapse = ", "), max.iter = max.iter,
-         tolerance = tolerance)
+         tolerance = tolerance, use.active.set = use.active.set,
+         control = origin.control)
 }
 
 ## ----------------------------------------------------------------------
@@ -216,7 +256,9 @@ print.elnet.madlib <- function (x,
     cat("\nCall:\n", paste(deparse(x$call), sep = "\n", collapse = "\n"),
         "\n", sep = "")
     cat("\nCoefficients:\n")
-    print(format(x$coef, digits = digits), quote = FALSE)
+    coef <- format(x$coef, digits = digits)
+    coef[x$coef == 0] <- "."
+    print(coef, quote = FALSE)
     cat("\n")
     print(format(x$intercept, digits = digits), quote = FALSE)
     if (x$standardize) std.str <- ""
@@ -224,21 +266,33 @@ print.elnet.madlib <- function (x,
     cat("\nThe independent variables are", std.str,
         " standardized.\n", sep = "")
     cat("The log-likelihood is", format(x$loglik, digits = digits))
-    cat("\nThe computation is done in", x$iter, "iterations.\n\n")
+
+    if (x$method != "cd")
+        cat("\nThe computation is done with", x$iter, "iterations.\n\n")
+    else if (x$family == "gaussian")
+        cat("\nThe computation is done with", x$iter,
+            "iterations in memory.\n\n")
+    else if (x$family == "binomial")
+        cat("\nThe computation is done with", x$iter[1],
+            "iterations in database and", x$iter[2],
+            "iterations in memory.\n\n")
+
+    if (x$iter >= x$max.iter)
+        cat("The computation may not have converged with max.iter = ",
+            x$max.iter, " and tolerance = ", x$tolerance,
+            ". Use a larger max.iter or ",
+            "tolerance in the control parameters.\n\n", sep = "")
 }
 
 ## ----------------------------------------------------------------------
 
-predict.elnet.madlib <- function (object, newdata, type = "default",
-                                   ...)
+predict.elnet.madlib <- function (object, newdata,
+                                  type = c("response", "prob"),
+                                  ...)
 {
     if (!is(newdata, "db.obj"))
         stop("New data for prediction must be a db.obj!")
-
-    if (!is.character(type) ||
-        !tolower(type) %in% c("default", "response"))
-        stop("type must be \"default\" or \"response\"!")
-    type <- tolower(type)
+    type <- match.arg(type)
 
     conn.id <- conn.id(newdata)
     madlib <- schema.madlib(conn.id) # MADlib schema name
@@ -262,37 +316,55 @@ predict.elnet.madlib <- function (object, newdata, type = "default",
         sort <- newdata@.sort
     }
 
-    if (!is(newdata, "db.data.frame"))
-        ind.str <- .replace.col.with.expr(object$ind.str,
-                                          names(newdata),
-                                          newdata@.expr)
-    else
+    if (!is(newdata, "db.data.frame")) {
+        ## ind.str <- .replace.col.with.expr(object$ind.str,
+        ##                                   names(newdata),
+        ##                                   newdata@.expr)
+        if (length(object[[1]]$dummy) != 0) {
+            l <- length(names(newdata))
+            for (i in seq_len(length(object[[1]]$dummy))) {
+                newdata[[object[[1]]$dummy[i]]] <- 1
+                newdata@.expr[l+i] <- object[[1]]$dummy.expr[i]
+            }
+        }
+        ind.str <- paste(
+            "array[",
+            paste(.replace.col.with.expr1(object$ind.vars, newdata),
+                  collapse = ", "),
+            "]", sep = "")
+    } else
         ind.str <- object$ind.str
 
     if (object$family == "gaussian") {
+        if (object$method == "cd")
+            coef.str <- "array[" %+% ("," %.% object$coef) %+% "]"
+        else
+            coef.str <- paste("(select ", madlib,
+                              ".array_scalar_mult(coef_all, ",
+                              object$y.scl, "::double precision) from ",
+                              content(object$model), ")", sep = "")
         expr <- paste(madlib, ".elastic_net_gaussian_predict(",
-                     "(select ", madlib, ".array_scalar_mult(coef_all,",
-                      object$y.scl, "::double precision) from ",
-                      content(object$model),
-                      "), ", object$intercept, ", ", ind.str, ")", sep = "")
+                     coef.str, ", ", object$intercept, ", ", ind.str,
+                      ")", sep = "")
         data.type <- "double precision"
         udt.name <- "float8"
     }
 
     if (object$family == "binomial") {
-        if (type == "default") {
+        if (object$method == "cd")
+            coef.str <- "array[" %+% ("," %.% object$coef) %+% "]"
+        else
+            coef.str <- ("(select coef_all from " %+% content(object$model)
+                         %+% ")")
+        if (type == "response") {
             expr <- paste(madlib, ".elastic_net_binomial_predict(",
-                          "(select ", madlib, ".array_scalar_mult(coef_all,",
-                          object$y.scl, "::double precision) from ",
-                          content(object$model), "), ", object$intercept,
+                          coef.str, ", ", object$intercept,
                           ", ", ind.str, ")", sep = "")
             data.type <- "boolean"
             udt.name <- "bool"
         } else {
             expr <- paste(madlib, ".elastic_net_binomial_prob(",
-                          "(select ", madlib, ".array_scalar_mult(coef_all,",
-                          object$y.scl, "::double precision) from ",
-                          content(object$model), "), ", object$intercept,
+                          coef.str, ", ", object$intercept,
                           ", ", ind.str, ")", sep = "")
             data.type <- "double precision"
             udt.name <- "float8"
@@ -325,6 +397,7 @@ predict.elnet.madlib <- function (object, newdata, type = "default",
         .col.udt_name = udt.name,
         .where = where,
         .is.factor = FALSE,
+        .factor.ref = as.character(NA),
         .factor.suffix = "",
         .sort = sort)
 }

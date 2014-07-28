@@ -11,6 +11,8 @@ setMethod (
     function (x) {
         if (length(x@.col.name) != 1)
             stop("Cannot coerce multiple columns into factor!")
+        if (x@.col.data_type == "array")
+            stop("Cannot set an array to be a factor!")
         if (x@.is.factor) return (x)
         if (is(x, "db.data.frame")) {
             new("db.Rquery",
@@ -26,7 +28,7 @@ setMethod (
                 .key = x@.key,
                 .where = x@.where,
                 .is.factor = TRUE,
-                .factor.suffix = .unique.string(),
+                .factor.suffix = .unique.string.short(),
                 .sort = x@.sort,
                 .dist.by = x@.dist.by)
         } else {
@@ -42,7 +44,8 @@ setMethod (
                 .key = x@.key,
                 .where = x@.where,
                 .is.factor = TRUE,
-                .factor.suffix = .unique.string(),
+                .factor.ref = as.character(NA),
+                .factor.suffix = .unique.string.short(),
                 .sort = x@.sort,
                 .dist.by = x@.dist.by)
         }
@@ -61,4 +64,20 @@ setMethod (
             TRUE
         else
             FALSE
+    })
+
+## ----------------------------------------------------------------------
+
+setGeneric ("relevel")
+
+setMethod(
+    "relevel",
+    signature(x = "db.obj"),
+    function(x, ref, ...) {
+        if (length(x@.col.name) != 1)
+            stop("Cannot relevel multiple columns!")
+        if (!x@.is.factor) x <- as.factor(x)
+        x@.factor.ref <- (if (is.null(ref) || is.na(ref))
+                          .null.string else as.character(ref))
+        x
     })

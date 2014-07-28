@@ -1,0 +1,8 @@
+
+PKG_LIBS = adp/libadp.a
+
+$(SHLIB): adp/libadp.a
+
+adp/libadp.a:
+	@(cd adp && $(MAKE) libadp.a \
+	CXX="$(CXX)" CPPFLAGS="$(ALL_CPPFLAGS)" CXXFLAGS="$(ALL_CXXFLAGS)" AR="$(AR)")

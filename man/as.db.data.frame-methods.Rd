@@ -4,6 +4,7 @@
 \alias{as.db.data.frame,data.frame-method}
 \alias{as.db.data.frame,db.Rquery-method}
 \alias{as.db.data.frame,db.data.frame-method}
+\alias{as.db.Rview}
 
 \title{
   Convert other objects into a \code{db.data.frame} object
@@ -20,19 +21,23 @@
 
 \usage{ \S4method{as.db.data.frame}{character}(x, table.name = NULL,
 verbose = TRUE, conn.id = 1, add.row.names = FALSE, key = character(0),
-distributed.by = NULL, is.temp = FALSE, ...)
+distributed.by = NULL, append = FALSE, is.temp = FALSE, ...)
 
 \S4method{as.db.data.frame}{data.frame}(x, table.name = NULL, verbose =
 TRUE, conn.id = 1, add.row.names = FALSE, key = character(0),
-distributed.by = NULL, is.temp = FALSE, ...) 
+distributed.by = NULL, append = FALSE, is.temp = FALSE, ...)
 
 \S4method{as.db.data.frame}{db.Rquery}(x, table.name = NULL, verbose =
 TRUE, is.view = FALSE, is.temp = FALSE, pivot = TRUE, distributed.by =
-NULL, nrow = NULL, field.types = NULL)
+NULL, nrow = NULL, field.types = NULL, na.as.level = FALSE,
+factor.full = rep(FALSE, length(names(x))))
 
 \S4method{as.db.data.frame}{db.data.frame}(x, table.name = NULL, verbose
 = TRUE, is.view = FALSE, is.temp = FALSE, distributed.by = NULL, nrow =
-NULL, field.types = NULL) }
+NULL, field.types = NULL)
+
+as.db.Rview(x)
+}
 
 \arguments{
   \item{x}{
@@ -48,6 +53,8 @@ NULL, field.types = NULL) }
   When it is of type \code{db.Rquery}, it represents a series of
   operations on a existing \code{db.data.frame} object. See
   \code{\linkS4class{db.Rquery}} for more.
+
+  For \code{as.db.Rview}, \code{x} must be a \code{db.Rquery} object.
   }
 
   \item{table.name}{
@@ -87,6 +94,11 @@ NULL, field.types = NULL) }
     distributed randomly, and when this parameter is an empty string
     code{""}, Greenplum database automatically chooses a column and
     distribute the data according to that column.
+  }
+
+  \item{append}{
+    A logical, default is \code{FALSE}. Whether to append the content of a
+    file or data.frame to an existing table in the database.
   }
 
   \item{nrow}{
@@ -138,29 +150,38 @@ and it defaults to 0.
     \code{\link{as.factor}} for more details.
   }
 
+  \item{na.as.level}{
+      A logical value, default is \code{FALSE}. Whether to treat \code{NA}
+      value as a level in a categorical variable or just ignore it.
+  }
+
   \item{field.types}{
 
     A list of \code{key=value} pairs, where the value is a string of
     data type. Force the new table to use the data type for the column
-    \code{key}. 
+    \code{key}.
+  }
 
-  } }
+  \item{factor.full}{
+    A vector of logical values with the length of the column number. All \code{FALSE} by default. When the function creates dummy variables for a factor (categorical) variable, whether to create \code{n} dummies or \code{n-1} dummies, where \code{n} is the number of levels of the factor. For some regression problem, we need to create dummy variables for all the distinct values of the categorical variable.
+  }
+}
 
 \value{
   A \code{db.data.frame} object. It points to a table whose name is
-  given by \code{table.name} in connection \code{conn.id}. 
+  given by \code{table.name} in connection \code{conn.id}.
 
 }
 
 \note{
 
-  All the \code{as.db.data.frame} accept the option \code{field.types}. 
-  
+  All the \code{as.db.data.frame} accept the option \code{field.types}.
+
 }
 
 \author{
   Author: Predictive Analytics Team at Pivotal Inc.
-  
+
   Maintainer: Hai Qian, Pivotal Inc. \email{hqian@gopivotal.com}
 }
 
@@ -172,7 +193,7 @@ and it defaults to 0.
   \code{\link{db.data.frame}} creates an object pointing to a table/view
   in the database.
 
-  \code{\link{preview}} reads data from the table
+  \code{\link{lk}} looks at data from the table
 
   \code{\linkS4class{db.Rquery}} this type of object represents
   operations on an existing \code{\linkS4class{db.data.frame}} object.
@@ -180,32 +201,37 @@ and it defaults to 0.
 \examples{
 \dontrun{
 ## get the help for a method
-help("as.db.data.frame")
-help("as.db.data.frame,db.Rquery-method")
+## help("as.db.data.frame")
+## help("as.db.data.frame,db.Rquery-method")
 
-## Suppose that a valid connection with ID 1 exists
+%% @test .port Database port number
+%% @test .dbname Database name
+## set up the database connection
+## Assume that .port is port number and .dbname is the database name
+cid <- db.connect(port = .port, dbname = .dbname, verbose = FALSE)
 
 ## create a table from the example data.frame "abalone"
-x <- as.db.data.frame(abalone, "abalone")
+x <- as.db.data.frame(abalone, conn.id = cid, verbose = FALSE)
 
 ## preview of a table
-preview(x, nrows = 10) # extract 10 rows of data
+lk(x, nrows = 10) # extract 10 rows of data
 
 ## do some operations and preview the result
-y <- (x[,1:2] + 1.2) * 2
-preview(y, 20, FALSE)
+y <- (x[,-2] + 1.2) * 2
+lk(y, 20, FALSE)
 
 ## table abalone has a column named "id"
-preview(sort(x, by = "id"), 20) # the preview is ordered by "id" value
+lk(sort(x, INDICES = x$id), 20) # the preview is ordered by "id" value
 
 ## create a copied table
 ## x[,] converts x from db.data.frame object to db.Rquery object
-z <- as.db.data.frame(x[,], "abalone1")
+z <- as.db.data.frame(x[,])
 
 ## Force the data type, use random table name
 
 z1 <- as.db.data.frame(x$rings, field.types = list(rings="integer"))
 
+db.disconnect(cid, verbose = FALSE)
 } }
 
 \keyword{utility}

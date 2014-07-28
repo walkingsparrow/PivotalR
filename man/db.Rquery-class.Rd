@@ -2,14 +2,15 @@
 \Rdversion{1.1}
 \docType{class}
 \alias{db.Rquery-class}
+\alias{db.Rview-class}
 
-\title{Class \code{"db.Rquery"}}
+\title{Class \code{"db.Rquery"} and its sub-class \code{db.Rview-class}}
 \description{
   An object of this class represents a series of operations applied onto
   an existing \code{\linkS4class{db.data.frame}} object. These
   operations are actually a SQL query, which one can choose to
   materialize in the database using
-  \code{\link{as.db.data.frame}}. \code{\link{preview}} can fetch a part
+  \code{\link{as.db.data.frame}}. \code{\link{lk}} can fetch a part
   of the result of executing the SQL query. Thus one does not need to
   create a table for every step of the operations, and the data
   transfered between R and the database is minimized.
@@ -18,7 +19,9 @@
 \section{Objects from the Class}{
 Objects can be created by almost all functions/methods that can be
 applied onto \code{\linkS4class{db.data.frame}} except
-\code{\link{content}}, \code{\link{preview}} and \code{\link{delete}}.
+\code{\link{content}}, \code{\link{lk}} and \code{\link{delete}}.
+
+\code{db.Rview-class} is a sub-class of \code{db.Rquery-class}, and it behaves just like "view" in the databases except that it exists only in R. Usually there is no difference to use \code{db.Rview} or \code{db.Rquery}. \code{\link{as.db.Rview}} casts a \code{db.Rquery} object into a \code{db.Rview} object.
 
 Usually it is
 NOT recommended to directly manipulate the internal slots of these objects.
@@ -34,7 +37,7 @@ NOT recommended to directly manipulate the internal slots of these objects.
     \item{\code{.expr}:}{
       Object of class \code{"character"}. An array of expression
       strings for columns of the table that the SQL query can be
-      materialized into. It is not to used by the 
+      materialized into. It is not to used by the
       normal users.
     }
 
@@ -52,7 +55,7 @@ NOT recommended to directly manipulate the internal slots of these objects.
 
     \item{\code{.conn.id}:}{
       Object of class \code{"numeric"}, an integer. The ID number of the
-      database 
+      database
       connection where \code{.source} resides. The functions
       \code{\link{conn.id}} and \code{\link{conn.id<-}} can get and set
       this value.
@@ -68,7 +71,7 @@ NOT recommended to directly manipulate the internal slots of these objects.
     \item{\code{.key}:}{
       Object of class \code{"character"}. The name of the primary key
       column name in \code{.source}. Currently only one primary key
-      column is 
+      column is
       supported. This value can be set during the creation of the object
       when using the function \code{\link{db.data.frame}}. The functions
       \code{\link{key}} and \code{\link{key<-}} can be used to get and
@@ -96,7 +99,7 @@ NOT recommended to directly manipulate the internal slots of these objects.
     \item{\code{.is.factor}:}{
       Object of class \code{"logical"}. An array of logical values which
       indicate whether each column of the table that the SQL query can
-      be materialized 
+      be materialized
       into is a factor. This
       is not to be used by the normal users.
     }
@@ -108,8 +111,12 @@ NOT recommended to directly manipulate the internal slots of these objects.
       dummy columns to avoid naming conflicts. So a factor column's
       \code{.factor.suffix} is a random string, otherwise it is just an
       empty string. This is not to be used by the normal users. It is
-      used only the MADlib wrapper functions that support categorial
-      variables. 
+      used only the MADlib wrapper functions that support categorical
+      variables.
+    }
+
+    \item{\code{.factor.ref}:}{
+      The value of the factor reference level for the regressions. If it       is \code{NA}, then the regressions automatically select a reference level.
     }
 
     \item{\code{.sort}:}{
@@ -145,7 +152,7 @@ this class.
 
 \author{
   Author: Predictive Analytics Team at Pivotal Inc.
-  
+
   Maintainer: Hai Qian, Pivotal Inc. \email{hqian@gopivotal.com}
 }
 
@@ -156,20 +163,28 @@ this class.
   \code{data.frame}, or a data file into a \code{db.data.frame} object
   and at the same time creates a new table in the database.
 
+  \code{\link{as.db.Rview}} converts a \code{db.Rquery} object to a \code{db.Rview} object.
+
   \code{\linkS4class{db.obj}} is the superclass.
 
   Class \code{\linkS4class{db.data.frame}} is another sub-class of
   \code{\linkS4class{db.obj}}.
 
-  \code{\link{preview}} display a part of the table
+  \code{\link{lk}} display a part of the table
 }
 
 \examples{
 \dontrun{
 showClass("db.Rquery")
 
-db.connect(port = 5433)
-x <- db.data.frame("abalone") # x points to table "abalone"
+%% @test .port Database port number
+%% @test .dbname Database name
+## set up the database connection
+## Assume that .port is port number and .dbname is the database name
+cid <- db.connect(port = .port, dbname = .dbname)
+
+delete("abalone", conn.id = cid)
+x <- as.db.data.frame(abalone, "abalone", conn.id = cid)
 
 ## create several db.Rquery objects
 y <- x[,1:2]
@@ -177,14 +192,17 @@ z <- x[x$rings > 10,]
 
 dim(z) # get an error
 
-preview(y)
+lk(y)
 
-preview(z)
+lk(z)
 
 ## materialize a db.Rquery object
 z <- as.db.data.frame(z, "abalone_rings_larger_10")
+delete("abalone_rings_larger_10", conn.id = cid)
 
 dim(z) # no error
+
+db.disconnect(cid, verbose = FALSE)
 }
 }
 

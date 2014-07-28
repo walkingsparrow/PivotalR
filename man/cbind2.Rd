@@ -1,5 +1,6 @@
 \name{cbind2-methods}
 \alias{as.list,db.obj-method}
+\alias{cbind}
 \alias{cbind2}
 \alias{cbind2,db.obj,db.obj-method}
 \title{Combine two \code{db.obj} Objects by Columns}
@@ -23,17 +24,10 @@
 }
 
 \item{\dots}{
-  Not implemented yet.
+  In \code{cbind} they can be anything that can form new columns together with \code{x}. In \code{as.list}, it is not implemented yet.
+}
 }
 
-}
-\details{
-    The main use of 'cbind2' is to be called by 'cbind()'
-    *if* these are activated.  This allows 'cbind'
-     to work for formally classed (aka 'S4') objects by
-     providing S4 methods for these objects. These are automatically
-  activated when this package is loaded.
-}
 \value{
   \code{cbind2} or \code{cbind}: A \code{\linkS4class{db.Rquery}} object, which contains all columns of
 x and y.
@@ -54,11 +48,15 @@ x and y.
 }
 \examples{
 \dontrun{
-
-## Suppose that a valid connection with ID 1 exists
+%% @test .port Database port number
+%% @test .dbname Database name
+## set up the database connection
+## Assume that .port is port number and .dbname is the database name
+cid <- db.connect(port = .port, dbname = .dbname, verbose = FALSE)
 
 ## create a table from the example data.frame "abalone"
-x <- db.data.frame('abalone') # use default connection 1
+delete('abalone', conn.id = cid)
+x <- as.db.data.frame(abalone, 'abalone', conn.id = cid, verbose = FALSE)
 
 fit <- madlib.lm(rings ~ . - id - sex, data = x)
 
@@ -78,6 +76,8 @@ unlist(Map(function(x)
 
 ## sum of all columns (excluding the 2nd column)
 Reduce(function(left, right) left + right, as.list(x[-2]))
+
+db.disconnect(cid, verbose = FALSE)
 }
 }
 

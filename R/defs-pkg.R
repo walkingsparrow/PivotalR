@@ -26,10 +26,10 @@
 ## cannot be changed without exposing to users. If we really
 ## export these variables, they will easily interfere with other
 ## user defined variables.
-## 
+##
 ## The only way is to define a local environment inside the package.
 ##
-## The environment is a constant and cannot be changed, 
+## The environment is a constant and cannot be changed,
 ## but the variables inside this environment can be changed.
 ## The environment constant is not exported, and is thus hidden
 ## from the users.
@@ -40,6 +40,36 @@
 ## (3) conn.type - a list with vector element, contains connection pkg
 ## for each conn id
 ## (4) drv - drivers for each connection packages
+
+
+## Use this to represent NULL
+## user is extremely unlikely to use this name
+.null.string <- "<@#$NULL%^&>"
+
+## -----------------------------------------------------------------------
+
+.num.types <- c("smallint", "integer", "int2", "int4", "int4",
+                "bigint", "decimal", "numeric", "double precision",
+                "float8", "real", "serial", "bigserial")
+
+## --
+
+.int.types <- c("smallint", "integer", "int2", "int4", "int4",
+                "bigint")
+
+## --
+
+.txt.types <- c("character varying", "varchar", "character",
+                "char", "text")
+
+## --
+
+.time.types <- c("timestamp", "time", "date", "interval",
+                 "timestamp with time zone")
+
+.udt.time.types <- c("timestamp", "time", "date", "interval", "timestamptz")
+
+.time.change <- c("interval", "time", "integer", "interval", "interval")
 
 
 ## -----------------------------------------------------------------------
@@ -63,6 +93,7 @@ setClass("db.data.frame",
              .dummy = "character",
              .dummy.expr = "character",
              .is.factor = "logical",
+             .factor.ref = "character",
              .dist.by = "character"
              )
          )
@@ -108,6 +139,7 @@ setClass("db.Rquery",
              .where = "character", # WHERE clause
              .is.factor = "logical", # a boolean vector
              .factor.suffix = "character",
+             .factor.ref = "character",
              .sort = "list", # order by
              .is.agg = "logical", # is this an aggrgate?
              .dist.by = "character"
@@ -122,8 +154,35 @@ setClass("db.Rcrossprod",
          representation(
              .is.crossprod = "logical", # is the column a crossprod
              .is.symmetric = "logical", # is the column crossprod symmetric
-             .dim = "numeric"), # 
+             .dim = "numeric"),
+         ## .inverse = "logical"),
+         ## prototype = list(.inverse = FALSE),
          contains = "db.Rquery")
+
+## ----------------------------------------------------------------------
+
+## A db.Rquery, but is treated as a view
+setClass("db.Rview",
+         representation(
+             .sub = "character"),
+         contains = "db.Rquery")
+
+## Convert a db.Rquery object to db.Rview object
+as.db.Rview <- function (x) {
+    if (!is(x, "db.Rquery"))
+        stop(deparse(substitute(x)), " must be a db.Rquery object!")
+    w <- as(x, "db.Rview")
+    w@.parent <- x@.content
+    w@.expr <- "\"" %+% w@.col.name %+% "\""
+    w@.sub <- gsub("__", "", .unique.string())
+    w@.content <- paste("select ",
+                        paste(w@.expr, "as \"", w@.col.name, "\"",
+                              collapse = ", "),
+                        " from (", w@.parent, ") ", w@.sub, sep = "")
+    w@.where <- ""
+    w@.sort <- list(by = "", order = "", str = "")
+    w
+}
 
 ## -----------------------------------------------------------------------
 

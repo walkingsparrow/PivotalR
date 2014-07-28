@@ -10,7 +10,7 @@
   according to the values of the grouping columns. The requested regression
   method is applied onto each group,  which has fixed values of the grouping
   columns. Multinomial logistic regression is not implemented
-  yet. Categorial variables are supported. The
+  yet. Categorical variables are supported. The
   computation is parallelized by MADlib if the connected database is
   Greenplum database. The regression computation can also be done on a
   column that is an array in the data table.
@@ -58,6 +58,9 @@ madlib.glm(formula, data, family = c("gaussian", "linear", "binomial",
         A list, extra parameters to be passed to linear or logistic
         regressions.
 
+        \code{na.as.level}: A logical value, default is \code{FALSE}. Whether to treat \code{NA}
+      value as a level in a categorical variable or just ignore it.
+
         For the linear regressions, the extra parameter is
         \code{hetero}. A logical, deafult is \code{FALSE}. If it is
   \code{TRUE}, then Breusch-Pagan test is performed on the fitting model
@@ -68,7 +71,7 @@ madlib.glm(formula, data, family = c("gaussian", "linear", "binomial",
 
         \code{method}: A string, default is \code{"irls"} (iteratively
         reweighted least squares [3]), other choices
-        are \code{"cgd"} (conjugate gradient descent algorithm [4]) and \code{"igd"}
+        are \code{"cg"} (conjugate gradient descent algorithm [4]) and \code{"igd"}
         (stochastic gradient descent algorithm [5]). The algorithm names for
         logistic regression.
 
@@ -191,7 +194,7 @@ madlib.glm(formula, data, family = c("gaussian", "linear", "binomial",
     we are dealing with the factor variables, where the dummy variable
     names can be very long due to the inserting of a random string to
     avoid naming conflicts, see \code{\link{as.factor,db.obj-method}}
-    for details. The list also contains \code{dummy} and \code{dummy.expr}, which are also used for processing the categorial variables, but do not contain any important information.
+    for details. The list also contains \code{dummy} and \code{dummy.expr}, which are also used for processing the categorical variables, but do not contain any important information.
   }
 
   \item{model}{
@@ -207,8 +210,12 @@ madlib.glm(formula, data, family = c("gaussian", "linear", "binomial",
     The number of observations used to fit the model.
   }
 
-  \item{data}{The original \code{db.obj} object, which wraps all the
-  data used in the database.}
+  \item{data}{A \code{db.obj} object, which wraps all the
+    data used in the database. If there are fittings for multiple groups,   then this is only the wrapper for the data in one group.}
+
+  \item{origin.data}{
+  The original \code{db.obj} object. When there is no grouping, it is equal to \code{data} above, otherwise it is the "sum" of \code{data} from all groups.
+}
 
   Note that if there is grouping done, and there are multiple
   \code{logregr.madlib} objects in the final result, each one of them
@@ -253,21 +260,26 @@ madlib.glm(formula, data, family = c("gaussian", "linear", "binomial",
   \code{\link{madlib.summary}}, \code{\link{madlib.arima}} are MADlib
   wrapper functions.
 
-  \code{\link{as.factor}} creates categorial variables for fitiing.
+  \code{\link{as.factor}} creates categorical variables for fitiing.
 
   \code{\link{delete}} safely deletes the result of this function.
 }
 
 \examples{
-    \dontrun{
-## connect to a data base
-db.connect(dbname = "exampledb", user = "example", host = "localhost", port = 5433)
-source_data <- db.data.frame("madlibtestdata.lin_ornstein")
-preview(source_data, 10)
+\dontrun{
+%% @test .port Database port number
+%% @test .dbname Database name
+## set up the database connection
+## Assume that .port is port number and .dbname is the database name
+cid <- db.connect(port = .port, dbname = .dbname, verbose = FALSE)
+
+source_data <- as.db.data.frame(abalone, conn.id = cid, verbose = FALSE)
+
+lk(source_data, 10)
 
 ## linear regression conditioned on nation value
 ## i.e. grouping
-fit <- madlib.glm(interlocks ~ . | nation, data = source_data, heteroskedasticity = T)
+fit <- madlib.glm(rings ~ . -id | sex, data = source_data, heteroskedasticity = T)
 fit
 
 ## logistic regression
@@ -275,20 +287,29 @@ fit
 ## logistic regression
 ## The dependent variable must be a logical variable
 ## Here it is y < 10.
-fit <- madlib.glm(interlocks < 10 ~ . - 1 , data = source_data)
+fit <- madlib.glm(rings < 10 ~ . - id - 1 , data = source_data, family = "binomial")
 
-fit <- madlib.glm(interlocks < 10 ~ assets + as.factor(nation) + sector,
-data = source_data)
+fit <- madlib.glm(rings < 10 ~ sex + length + diameter,
+data = source_data, family = "logistic")
 
 ## 3rd example
 ## The table has two columns: x is an array, y is double precision
-array.data <- db.data.frame("tbl_has_array_column")
+dat <- source_data
+dat$arr <- db.array(source_data[,-c(1,2)])
+array.data <- as.db.data.frame(dat)
 
 ## Fit to y using every element of x
 ## This does not work in R's lm, but works in madlib.lm
-fit <- madlib.glm(y < 10 ~ x, data = array.data, family = "binomial")
+fit <- madlib.glm(rings < 10 ~ arr, data = array.data, family = "binomial")
 
-fit <- madlib.glm(y < 10 ~ x - x[1:2], data = array.data, family = "binomial")
+fit <- madlib.glm(rings < 10 ~ arr - arr[1:2], data = array.data, family = "binomial")
+
+## 4th example
+## Step-wise feature selection
+start <- madlib.glm(rings < 10 ~ . - id - sex, data = source_data, family = "binomial")
+## step(start)
+
+db.disconnect(cid, verbose = FALSE)
 }
 }
 
@@ -296,4 +317,3 @@ fit <- madlib.glm(y < 10 ~ x - x[1:2], data = array.data, family = "binomial")
 % R documentation directory.
 \keyword{madlib}
 \keyword{stats}
-

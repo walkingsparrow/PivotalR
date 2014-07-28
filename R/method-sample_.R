@@ -1,4 +1,3 @@
-
 ## -----------------------------------------------------------------------
 ## Sample method with or without replace
 ## -----------------------------------------------------------------------
@@ -19,7 +18,7 @@ setMethod (
 
         if (!replace) {
             tmp <- .unique.string()
-           
+
             res <- as.db.data.frame(sort(x, FALSE, "random"), tmp, FALSE,
                                     FALSE, TRUE, FALSE, x@.dist.by, size)
             .restore.warnings(warnings)
@@ -28,13 +27,13 @@ setMethod (
             select <- sample(seq(n), size, replace = TRUE)
             freq <- table(table(select))
             fq <- cbind(as.integer(names(freq)), as.integer(freq))
-            
+
             m <- sum(fq[,2])
             tmp <- .unique.string()
             res <- as.db.data.frame(sort(x, FALSE, NULL), tmp, FALSE,
                                     FALSE, TRUE, FALSE, x@.dist.by, m)
             dist.str <- .get.distributed.by.str(conn.id, res@.dist.by)
-            
+
             for (i in seq_len(max(fq[,1])-1)+1) {
                 sz <- sum(fq[fq[,1]>=i,2])
                 if (i == 2) {
@@ -49,17 +48,17 @@ setMethod (
                                  content(res), " order by random() limit ",
                                  sz, ")", sep = "")
                 }
-                .get.res(sql = sql, conn.id = conn.id)
+                db.q(sql, conn.id = conn.id, verbose = FALSE)
             }
 
-            .get.res(sql = paste("insert into ", content(res),
-                     " (select * from ", tmp1, ")", sep = ""),
-                     conn.id = conn.id)
+            if (max(fq[,1]) > 1) {
+                db.q(paste("insert into ", content(res),
+                           " (select * from ", tmp1, ")", sep = ""),
+                     conn.id = conn.id, verbose = FALSE)
+                delete(tmp1, is.temp = TRUE, cascade = TRUE)
+            }
 
             .restore.warnings(warnings)
-
-            delete(tmp1, is.temp = TRUE, cascade = TRUE)
-            
             res@.dim[1] <- size
             res
         }
@@ -100,11 +99,14 @@ setMethod (
     dbms <- (.get.dbms.str(conn.id))$db.str
     if (dbms != "PostgreSQL") {
         dist.cols <- x@.dist.by
-        if (identical(dist.cols, character(0))) {
+        if (identical(dist.cols, character(0)) ||
+            !all(dist.cols %in% x@.col.name)) {
             dist.str <- paste("distributed by (", id.col, ")", sep = "")
             dist.by <- id.col
         } else {
-            dist.str <- paste("distributed by (", dist.cols, ")", sep = "")
+            dist.str <- paste("distributed by (",
+                              paste("\"", dist.cols, "\"", sep = ""),
+                              ")", sep = "")
         }
     } else {
         dist.str <- ""

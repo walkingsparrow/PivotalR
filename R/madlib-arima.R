@@ -1,4 +1,3 @@
-
 ## ----------------------------------------------------------------------
 ## Wrapper function for MADlib's ARIMA
 ## ----------------------------------------------------------------------
@@ -26,19 +25,19 @@ setMethod (
     optim.control = list(), ...)
 {
     method <- match.arg(method)
-    optim.method <- match.arg(method)
+    optim.method <- match.arg(optim.method)
     if (length(names(x)) != 1 || length(names(ts)) != 1)
         stop("ARIMA can only have one time stamp column and ",
              "one time series value column !")
-    
-    data <- cbind(x, ts)
+
+    data <- cbind2(x, ts)
     f.str <- paste(names(x), "~", names(ts))
 
     ## grouping is a list of db.Rquery
     if (!is.null(by)) {
         grp.names <- character(0)
         for (i in seq_len(length(by))) {
-            data <- cbind(data, by[[i]])
+            data <- cbind2(data, by[[i]])
             grp.names <- c(grp.names, names(by[[i]]))
         }
         f.str <- paste(f.str, "|", paste(grp.names, collapse = "+"))
@@ -98,21 +97,21 @@ setMethod (
 
     if (length(order) != 3)
         stop("ARIMA needs order to be an integer array of length 3 !")
-    
+
     ## make sure fitting to db.obj
     if (! is(data, "db.obj"))
         stop("madlib.lm cannot be used on the object ",
              deparse(substitute(data)))
-    
+
     ## Only newer versions of MADlib are supported
     .check.madlib.version(data, 1.2)
 
     conn.id <- conn.id(data)
-    
-    db.str <- (.get.dbms.str(conn.id))$db.str
-    if (db.str == "HAWQ")
-        stop("Right now MADlib on HAWQ does not support ARIMA !")
-    
+
+    db <- .get.dbms.str(conn.id)
+    if (db$db.str == "HAWQ" && grepl("^1\\.1", db$version.str))
+        stop("MADlib on HAWQ 1.1 does not support ARIMA !")
+
     warnings <- .suppress.warnings(conn.id)
 
     ## analyze the formula
@@ -122,7 +121,7 @@ setMethod (
     is.tbl.source.temp <- analyzer$is.tbl.source.temp
     ## tbl.source <- gsub("\"", "", content(data))
     tbl.source <- content(data)
-    
+
     if (length(params$ind.vars) != 1)
         stop("Only one time stamp is allowed !")
 
@@ -131,18 +130,18 @@ setMethod (
         grp <- "NULL"
     else
         stop("Right now MADlib does not support grouping in ARIMA !")
-    
+
     ## allow expressions as time series and time stamp
     ## create intermediate tables to accomodate this
     col.names <- names(data)
     if (!(.strip(params$ind.vars, "\"") %in% col.names) ||
         !(.strip(params$dep.str, "\"") %in% col.names)) {
         new.src <- .unique.string()
-        res <- .get.res(sql = paste("create table ", new.src, " as ",
-                        "select ", params$dep.str, " as tval, ",
-                        params$ind.vars, " as tid from ", tbl.source,
-                        sep = ""),
-                        conn.id = conn.id)
+        res <- db.q(paste("create table ", new.src, " as ",
+                          "select ", params$dep.str, " as tval, ",
+                          params$ind.vars, " as tid from ", tbl.source,
+                          sep = ""),
+                    conn.id = conn.id, verbose = FALSE)
         if (is.tbl.source.temp) delete(tbl.source)
         is.tbl.source.temp <- TRUE
         tbl.source <- new.src
@@ -166,32 +165,32 @@ setMethod (
                  optim.control.str, "')", sep = "")
 
     ## execute and get the result
-    res <- .get.res(sql=sql, conn.id=conn.id)
+    res <- db.q(sql, conn.id=conn.id, verbose = FALSE)
 
     p <- order[1]
     d <- order[2]
     q <- order[3]
-    
+
     ## retrieve the coefficients
-    res <- preview(tbl.output, conn.id=conn.id, "all")
+    res <- lk(tbl.output, conn.id=conn.id, -1)
     rst <- list()
-    
+
     rst$coef <- numeric(0) # coefficients
     rst$s.e. <- numeric(0) # standard errors
     coef.names <- character(0)
     if (p != 0) {
-        rst$coef <- c(rst$coef, res[1,1:p])
-        rst$s.e. <- c(rst$s.e., res[1,p+(1:p)])
+        rst$coef <- c(rst$coef, as.numeric(res[1,1]))
+        rst$s.e. <- c(rst$s.e., as.numeric(res[1,2]))
         coef.names <- c(coef.names, paste("ar", 1:p, sep = ""))
     }
     if (q != 0) {
-        rst$coef <- c(rst$coef, res[1,2*p + (1:q)])
-        rst$s.e. <- c(rst$s.e., res[1,2*p+q+(1:q)])
+        rst$coef <- c(rst$coef, as.numeric(res[1,(p>0)*2+1]))
+        rst$s.e. <- c(rst$s.e., as.numeric(res[1,(p>0)*2+2]))
         coef.names <- c(coef.names, paste("ma", 1:q, sep = ""))
     }
     if (include.mean && d == 0) {
-        rst$coef <- c(rst$coef, res[1,dim(res)[2]-1])
-        rst$s.e. <- c(rst$s.e., res[1,dim(res)[2]])
+        rst$coef <- c(rst$coef, as.numeric(res[1,((p>0)+(q>0))*2+1]))
+        rst$s.e. <- c(rst$s.e., as.numeric(res[1,((p>0)+(q>0))*2+2]))
         coef.names <- c(coef.names, "mean")
     }
     names(rst$coef) <- coef.names
@@ -208,7 +207,7 @@ setMethod (
     rst$loglik <- res$log_likelihood
     rst$iter.num <- res$iter_num
     rst$exec.time <- res$exec_time
-    
+
     ## create db.data.frame object for residual table
     rst$residuals <- db.data.frame(paste(tbl.output, "_residual", sep = ""),
                                    conn.id = conn.id, verbose = FALSE)
@@ -221,7 +220,7 @@ setMethod (
     ## will delete it
     if (is.tbl.source.temp) rst$temp.source <- TRUE
     else rst$temp.source <- FALSE
-                
+
     .restore.warnings(warnings)
 
     class(rst) <- "arima.css.madlib"
@@ -274,19 +273,19 @@ show.arima.css.madlib <- function (object)
 predict.arima.css.madlib <- function(object, n.ahead = 1, ...)
 {
     conn.id <- conn.id(object$model)
-    
+
     warnings <- .suppress.warnings(conn.id)
-    
+
     tbl.output <- .unique.string()
     tbl.model <- .strip(content(object$model), "\"")
     madlib <- schema.madlib(conn.id) # MADlib schema name
     sql <- paste("select ", madlib, ".arima_forecast('",
                  tbl.model, "', '", tbl.output, "',",
                  n.ahead, ")", sep = "")
-    res <- .get.res(sql=sql, conn.id=conn.id)
+    res <- db.q(sql, conn.id=conn.id, verbose = FALSE)
     rst <- db.data.frame(tbl.output, conn.id=conn.id, verbose = FALSE)
 
     .restore.warnings(warnings)
-    
+
     rst
 }
